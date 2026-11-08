@@ -1,0 +1,3 @@
+# Secrets live as untracked secrets.env files inside the Deployment Repo clone
+
+Each Stack's secrets come from a `secrets.env` placed by hand in that Stack's directory of the host's clone. It is never committed (the repo's `.gitignore` excludes it, and a commit that tracks one makes that Stack Invalid) and scd only ever reads it. We chose this over a separate host directory (`~/.config/scd/env/`) so a Stack's secrets sit next to its definition; the cost is that the clone always contains ignored files, so "clean clone" checks must ignore them, and a Stack directory removed from git can linger on the host holding only its `secrets.env`. Encrypted-in-repo secrets (sops/age) or an external secret manager are expected later and would replace this.
