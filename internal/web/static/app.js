@@ -14,7 +14,11 @@ if (applyOutput) {
   const already = applyOutput.textContent.split("\n").filter((l, i, a) => i < a.length - 1).length;
   const es = new EventSource(`${applyOutput.dataset.stream}?from=${already}`);
   es.onmessage = (e) => {
-    applyOutput.textContent += e.data + "\n";
+    const span = document.createElement("span");
+    if (e.data.startsWith("==>")) span.className = "ln-step";
+    else if (e.data.startsWith("!!!")) span.className = "ln-error";
+    span.textContent = e.data;
+    applyOutput.append(span, "\n");
     applyOutput.scrollTop = applyOutput.scrollHeight;
   };
   es.addEventListener("done", () => { es.close(); location.reload(); });
@@ -38,7 +42,10 @@ async function refreshStatus() {
       health.textContent = c.health;
       health.className = `health health-${c.health === "—" ? "" : c.health}`;
       row.querySelector(".restarts").textContent = c.restarts;
+      row.querySelector(".restarts-badge").classList.toggle("is-zero", !c.restarts);
       row.querySelector(".cpu").textContent = c.cpu;
+      const pct = parseFloat(c.cpu);
+      row.querySelector(".bar-fill").style.width = `${Number.isFinite(pct) ? Math.min(pct, 100) : 0}%`;
       row.querySelector(".mem").textContent = c.memory;
       row.querySelector(".status").textContent = c.status;
     }

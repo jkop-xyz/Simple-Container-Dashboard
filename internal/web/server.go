@@ -2,6 +2,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
@@ -49,6 +50,23 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	},
 	"ports": view.Ports,
+	// cpuBar is the CPU % clamped to 0–100, for the usage bar.
+	"cpuBar": func(c view.Container) float64 {
+		if c.State != "running" || !c.HasCPU {
+			return 0
+		}
+		return min(max(c.CPUPercent, 0), 100)
+	},
+	// line classifies Apply output lines so steps and failures stand out.
+	"line": func(l string) string {
+		switch {
+		case strings.HasPrefix(l, "==>"):
+			return "ln-step"
+		case strings.HasPrefix(l, "!!!"):
+			return "ln-error"
+		}
+		return ""
+	},
 	"dict": func(kv ...any) map[string]any {
 		m := map[string]any{}
 		for i := 0; i+1 < len(kv); i += 2 {
@@ -211,11 +229,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		data.Sync = &status
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	if err := pages.ExecuteTemplate(w, "index.html", data); err != nil {
-		slog.Error("rendering index", "err", err)
-	}
+	render(w, status, "index.html", data)
 }
 
 // discover returns the Stacks in the clone's checked-out commit plus any new ones in the
@@ -336,14 +350,11 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "reading state: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	data := struct {
 		Hostname string
 		History  []state.ApplyRecord
 	}{s.deps.Hostname, st.History}
-	if err := pages.ExecuteTemplate(w, "history.html", data); err != nil {
-		slog.Error("rendering history", "err", err)
-	}
+	render(w, http.StatusOK, "history.html", data)
 }
 
 // containers lists every container with its details and current usage. Inspect and
@@ -482,15 +493,12 @@ func (s *Server) logsPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such container", http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	data := struct {
 		Hostname string
 		C        dockerapi.Container
 		Tail     int
 	}{s.deps.Hostname, c, LogTail}
-	if err := pages.ExecuteTemplate(w, "logs.html", data); err != nil {
-		slog.Error("rendering logs page", "err", err)
-	}
+	render(w, http.StatusOK, "logs.html", data)
 }
 
 // logsStream sends the container's last LogTail lines as Server-Sent Events, then
@@ -572,14 +580,11 @@ func (s *Server) unitLogsPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no Quadlet unit named "+unit, http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	data := struct {
 		Hostname, Unit string
 		Tail           int
 	}{s.deps.Hostname, unit, LogTail}
-	if err := pages.ExecuteTemplate(w, "unitlogs.html", data); err != nil {
-		slog.Error("rendering unit logs page", "err", err)
-	}
+	render(w, http.StatusOK, "unitlogs.html", data)
 }
 
 // unitLogsStream streams a Quadlet unit's journal (last LogTail lines, then live) as
@@ -646,4 +651,18 @@ func (s *Server) newRelease() string {
 		return ""
 	}
 	return s.deps.NewerRelease()
+}
+
+// render executes a page into a buffer first, so a template error becomes a clean 500
+// instead of a page cut off halfway.
+func render(w http.ResponseWriter, status int, name string, data any) {
+	var buf bytes.Buffer
+	if err := pages.ExecuteTemplate(&buf, name, data); err != nil {
+		slog.Error("rendering page", "page", name, "err", err)
+		http.Error(w, "rendering "+name+": "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	buf.WriteTo(w)
 }

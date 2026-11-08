@@ -85,3 +85,54 @@ func Build(containers []Container, ss []stacks.Stack, selected func(name string)
 func sortByName(cs []Container) {
 	sort.Slice(cs, func(i, j int) bool { return cs[i].Name < cs[j].Name })
 }
+
+// Running counts the group's running containers.
+func (g Group) Running() int { return countRunning(g.Containers) }
+
+// Summary is the dashboard's at-a-glance overview.
+type Summary struct {
+	Running, Total, Unhealthy, Restarting int
+	Selected, Stacks, Invalid, Unmanaged  int
+}
+
+// Summary counts containers and Stacks for the overview tiles.
+func (d Dashboard) Summary() Summary {
+	var s Summary
+	add := func(cs []Container) {
+		for _, c := range cs {
+			s.Total++
+			if c.State == "running" {
+				s.Running++
+			}
+			if c.Health == "unhealthy" {
+				s.Unhealthy++
+			}
+			if c.State == "restarting" {
+				s.Restarting++
+			}
+		}
+	}
+	for _, g := range d.Groups {
+		add(g.Containers)
+		s.Stacks++
+		if g.Selected {
+			s.Selected++
+		}
+		if g.Stack.Invalid() {
+			s.Invalid++
+		}
+	}
+	add(d.Other)
+	s.Unmanaged = len(d.Other)
+	return s
+}
+
+func countRunning(cs []Container) int {
+	n := 0
+	for _, c := range cs {
+		if c.State == "running" {
+			n++
+		}
+	}
+	return n
+}

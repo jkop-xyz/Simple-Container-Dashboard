@@ -139,7 +139,7 @@ func TestLogsPage(t *testing.T) {
 		t.Fatalf("status %d", code)
 	}
 	assertContains(t, page, "jellyfin", `data-stream="/containers/abc/logs/stream"`, `href="/"`, "back to the dashboard",
-		"last 500 lines, then live", `class="log-pause"`)
+		"last 500 lines, then live", `log-pause"`)
 
 	if code, _ := h.get("/containers/nope/logs"); code != http.StatusNotFound {
 		t.Errorf("unknown container: status %d", code)
