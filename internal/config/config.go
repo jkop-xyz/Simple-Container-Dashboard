@@ -27,9 +27,9 @@ type Config struct {
 	// Listen is the address the dashboard listens on, e.g. ":1234".
 	Listen string `toml:"listen"`
 	// Runtime is "docker" or "podman". Empty means auto-detect from the available sockets.
-	Runtime Runtime `toml:"runtime"`
+	Runtime Runtime `toml:"runtime,omitempty"`
 	// Socket overrides the auto-detected runtime socket path.
-	Socket string `toml:"socket"`
+	Socket string `toml:"socket,omitempty"`
 	// Repo is the host's Deployment Repo. Optional: without it the dashboard only lists containers.
 	Repo Repo `toml:"repo"`
 }
@@ -39,7 +39,7 @@ type Repo struct {
 	// URL is the git remote, e.g. "https://github.com/owner/name.git".
 	URL string `toml:"url"`
 	// Branch to track. Empty means the remote's default branch.
-	Branch string `toml:"branch"`
+	Branch string `toml:"branch,omitempty"`
 	// Path is where the clone lives on the host. Defaults to $XDG_DATA_HOME/scd/repo.
 	Path string `toml:"path"`
 }
