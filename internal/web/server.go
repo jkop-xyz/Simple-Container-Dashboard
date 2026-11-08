@@ -53,8 +53,18 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 		}
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	},
-	"ports":       view.Ports,
-	"sicon":       sicon,
+	"ports": view.Ports,
+	"sicon": sicon,
+	// stackIcon is a Stack's status icon in the Overview summary.
+	"stackIcon": func(g view.Group) string {
+		switch {
+		case g.Stack.Invalid() || g.Unhealthy() > 0 || g.CrashLooping() > 0:
+			return "err"
+		case len(g.Containers) == 0 || g.Running() < len(g.Containers) || g.Selected != g.Deployed:
+			return "pend"
+		}
+		return "ok"
+	},
 	"filterTitle": func(f string) string { return view.FilterTitles[f] },
 	// shown counts the containers a (filtered) dashboard shows.
 	"shown": func(d view.Dashboard) int {
@@ -65,11 +75,17 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 		return n
 	},
 	// memBar sizes a container's memory bar relative to the busiest container.
-	"memBar": func(mem, peak uint64) float64 {
-		if peak == 0 {
+	"memBar": func(mem, total uint64) float64 {
+		if total == 0 {
 			return 0
 		}
-		return float64(mem) / float64(peak) * 100
+		return min(float64(mem)/float64(total)*100, 100)
+	},
+	"pct": func(part, total uint64) string {
+		if total == 0 {
+			return ""
+		}
+		return fmt.Sprintf("%.1f%% of host memory", float64(part)/float64(total)*100)
 	},
 	"navCount": navCount,
 	"title": func(s string) string {
@@ -138,6 +154,7 @@ type Runtime interface {
 	Inspect(ctx context.Context, id string) (dockerapi.Details, error)
 	Stats(ctx context.Context, id string) (dockerapi.Sample, error)
 	Logs(ctx context.Context, id string, opts dockerapi.LogOptions, fn func(line string) error) error
+	Info(ctx context.Context) (dockerapi.Info, error)
 }
 
 // Units reads systemd units; only set on Podman hosts.
@@ -204,6 +221,21 @@ type Server struct {
 	usage   usage.Collector
 	crashes crashloop.Tracker
 	metrics metrics
+
+	infoMu sync.Mutex
+	info   dockerapi.Info
+}
+
+// hostInfo is the runtime's host info, read once it succeeds.
+func (s *Server) hostInfo(ctx context.Context) dockerapi.Info {
+	s.infoMu.Lock()
+	defer s.infoMu.Unlock()
+	if s.info.MemTotal == 0 {
+		if info, err := s.deps.Runtime.Info(ctx); err == nil {
+			s.info = info
+		}
+	}
+	return s.info
 }
 
 // New returns the dashboard handler.
@@ -264,6 +296,12 @@ type indexData struct {
 	Q string
 	// View is the page: "overview", "containers" or "deployment".
 	View string
+	// MemTotal is the host's memory, which the memory bars are a share of.
+	MemTotal uint64
+	// Pending are Stacks whose selection differs from what's deployed.
+	Pending []view.Group
+	// ApplyHint explains a disabled Apply button.
+	ApplyHint string
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
@@ -314,6 +352,15 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		data.Sparks[c.ID] = sparkPath(s.metrics.spark(c.ID))
 		data.MaxMem = max(data.MaxMem, c.Memory)
 	}
+	data.MemTotal = s.hostInfo(ctx).MemTotal
+	if data.MemTotal > 0 {
+		data.MaxMem = data.MemTotal // bars show each container's share of host memory
+	}
+	for _, g := range full.Groups {
+		if g.Selected != g.Deployed && !g.Stack.Invalid() {
+			data.Pending = append(data.Pending, g)
+		}
+	}
 	data.Counts = map[string]int{
 		"attention": len(data.Problems),
 		"stopped":   data.Overview.Total - data.Overview.Running,
@@ -339,6 +386,20 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	if s.deps.Engine != nil {
 		status := s.deps.Engine.Status()
 		data.Sync = &status
+	}
+	if data.Sync != nil && !data.Sync.CanApply {
+		switch {
+		case data.Sync.Running:
+			data.ApplyHint = "A Sync is running"
+		case data.Sync.Plan == nil:
+			data.ApplyHint = "Nothing to apply yet: press Sync to fetch and review a plan"
+		case data.Sync.Stale:
+			data.ApplyHint = "The selection changed: press Sync again"
+		case data.Sync.Plan.Blocked != "":
+			data.ApplyHint = "This plan can't be applied"
+		default:
+			data.ApplyHint = "The plan changes nothing on this host"
+		}
 	}
 
 	render(w, status, "index.html", data)
@@ -543,7 +604,8 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		Containers []statusContainer `json:"containers"`
 		Missing    []string          `json:"missing"`
 		NewRelease string            `json:"newRelease,omitempty"`
-	}{Containers: []statusContainer{}, Missing: s.missing(), NewRelease: s.newRelease()}
+		MemTotal   uint64            `json:"memTotal"`
+	}{Containers: []statusContainer{}, Missing: s.missing(), NewRelease: s.newRelease(), MemTotal: s.hostInfo(ctx).MemTotal}
 	for _, c := range cs {
 		out.Containers = append(out.Containers, statusContainer{
 			ID: c.ID, Name: c.Name, State: c.State, Status: c.Status,

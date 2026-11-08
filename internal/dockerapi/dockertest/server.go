@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // Container is a container as the fake API reports it.
@@ -32,7 +33,19 @@ type Container struct {
 	// Logs is the container's output so far; Tty makes the fake send it unframed.
 	Logs []string
 	Tty  bool
+	// ExitCode, OOMKilled and FinishedAt describe the last stop; HealthOutput is the
+	// latest failing healthcheck's output.
+	ExitCode     int
+	OOMKilled    bool
+	FinishedAt   time.Time
+	HealthOutput string
 }
+
+// Host is what the fake's /info reports.
+var Host = struct {
+	MemTotal uint64
+	NCPU     int
+}{MemTotal: 16 << 30, NCPU: 4}
 
 // Port is a port binding in the API's shape.
 type Port struct {
@@ -187,6 +200,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	path := versionPrefix.ReplaceAllString(r.URL.Path, "")
 	id, sub, _ := strings.Cut(strings.TrimPrefix(path, "/containers/"), "/")
 	switch {
+	case r.Method == http.MethodGet && path == "/info":
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"MemTotal": Host.MemTotal, "NCPU": Host.NCPU})
 	case r.Method == http.MethodGet && path == "/containers/json":
 		s.listContainers(w, r)
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/containers/") && sub == "json":
@@ -246,12 +262,20 @@ func (s *Server) withContainer(w http.ResponseWriter, id string, fn func(http.Re
 }
 
 func (s *Server) inspect(w http.ResponseWriter, c Container) {
-	out := map[string]any{"Id": c.ID, "RestartCount": c.RestartCount, "State": map[string]any{"Status": c.State},
-		"Config": map[string]any{"Tty": c.Tty}}
-	if c.Health != "" {
-		out["State"].(map[string]any)["Health"] = map[string]any{"Status": c.Health}
+	st := map[string]any{"Status": c.State, "ExitCode": c.ExitCode, "OOMKilled": c.OOMKilled,
+		"FinishedAt": "0001-01-01T00:00:00Z"}
+	if !c.FinishedAt.IsZero() {
+		st["FinishedAt"] = c.FinishedAt.UTC().Format(time.RFC3339Nano)
 	}
-	json.NewEncoder(w).Encode(out)
+	if c.Health != "" {
+		h := map[string]any{"Status": c.Health}
+		if c.HealthOutput != "" {
+			h["Log"] = []map[string]any{{"ExitCode": 1, "Output": c.HealthOutput}}
+		}
+		st["Health"] = h
+	}
+	json.NewEncoder(w).Encode(map[string]any{"Id": c.ID, "RestartCount": c.RestartCount, "State": st,
+		"Config": map[string]any{"Tty": c.Tty}})
 }
 
 func (s *Server) stats(w http.ResponseWriter, c Container) {

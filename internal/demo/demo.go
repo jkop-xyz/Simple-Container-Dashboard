@@ -274,11 +274,16 @@ func (d *Demo) deploy(stack, image string) []string {
 		name := fmt.Sprintf("%s-%s-1", stack, s.name)
 		id := fmt.Sprintf("%x", rand.Uint64())
 		labels := map[string]string{"com.docker.compose.project": stack, "com.docker.compose.service": s.name}
-		add = append(add, dockertest.Container{
+		c := dockertest.Container{
 			ID: id, Name: name, Image: image, State: "running", Status: "Up Less than a second",
 			Labels: labels, Health: s.health, RestartCount: s.restarts, Ports: s.ports,
 			Logs: bootLog(stack, s.name, image),
-		})
+		}
+		if s.health == "unhealthy" { // homeassistant: keeps failing its healthcheck and exiting
+			c.ExitCode, c.FinishedAt = 1, time.Now().Add(-90*time.Second)
+			c.HealthOutput = "curl: (7) Failed to connect to localhost port 8123 after 2 ms: Connection refused"
+		}
+		add = append(add, c)
 		out = append(out, fmt.Sprintf(" Container %s  Started", name))
 	}
 	d.api.Update(func(cs []dockertest.Container) []dockertest.Container { return append(cs, add...) })
@@ -370,6 +375,7 @@ func (d *Demo) Animate(ctx context.Context) {
 				for j := range cs {
 					if cs[j].Labels["com.docker.compose.project"] == "homeassistant" {
 						cs[j].RestartCount++
+						cs[j].FinishedAt = time.Now()
 						d.mu.Lock()
 						d.started[cs[j].ID] = time.Now().Add(-4 * time.Second)
 						d.mu.Unlock()

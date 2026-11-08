@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // Container is one container as reported by the runtime.
@@ -133,6 +134,12 @@ type Details struct {
 	Health string
 	// Tty is set when the container has a terminal; its logs are then not multiplexed.
 	Tty bool
+	// ExitCode, OOMKilled and FinishedAt describe how the container last stopped.
+	ExitCode   int
+	OOMKilled  bool
+	FinishedAt time.Time
+	// HealthOutput is the output of the latest failing healthcheck, if any.
+	HealthOutput string
 }
 
 // Inspect returns a container's restart count and health.
@@ -140,8 +147,15 @@ func (c *Client) Inspect(ctx context.Context, id string) (Details, error) {
 	var wire struct {
 		RestartCount int `json:"RestartCount"`
 		State        struct {
-			Health *struct {
+			ExitCode   int    `json:"ExitCode"`
+			OOMKilled  bool   `json:"OOMKilled"`
+			FinishedAt string `json:"FinishedAt"`
+			Health     *struct {
 				Status string `json:"Status"`
+				Log    []struct {
+					ExitCode int    `json:"ExitCode"`
+					Output   string `json:"Output"`
+				} `json:"Log"`
 			} `json:"Health"`
 		} `json:"State"`
 		Config struct {
@@ -151,11 +165,40 @@ func (c *Client) Inspect(ctx context.Context, id string) (Details, error) {
 	if err := c.getJSON(ctx, "/containers/"+url.PathEscape(id)+"/json", &wire); err != nil {
 		return Details{}, err
 	}
-	d := Details{RestartCount: wire.RestartCount, Tty: wire.Config.Tty}
-	if wire.State.Health != nil {
-		d.Health = wire.State.Health.Status
+	d := Details{RestartCount: wire.RestartCount, Tty: wire.Config.Tty,
+		ExitCode: wire.State.ExitCode, OOMKilled: wire.State.OOMKilled}
+	if t, err := time.Parse(time.RFC3339Nano, wire.State.FinishedAt); err == nil && t.Year() > 1 {
+		d.FinishedAt = t
+	}
+	if h := wire.State.Health; h != nil {
+		d.Health = h.Status
+		for i := len(h.Log) - 1; i >= 0; i-- { // the latest failing check says why
+			if h.Log[i].ExitCode != 0 {
+				d.HealthOutput = strings.TrimSpace(h.Log[i].Output)
+				break
+			}
+		}
 	}
 	return d, nil
+}
+
+// Info is what the runtime says about the host.
+type Info struct {
+	// MemTotal is the host's memory in bytes; NCPU its CPU count.
+	MemTotal uint64
+	NCPU     int
+}
+
+// Info reads the host's memory and CPU count.
+func (c *Client) Info(ctx context.Context) (Info, error) {
+	var wire struct {
+		MemTotal uint64 `json:"MemTotal"`
+		NCPU     int    `json:"NCPU"`
+	}
+	if err := c.getJSON(ctx, "/info", &wire); err != nil {
+		return Info{}, err
+	}
+	return Info{MemTotal: wire.MemTotal, NCPU: wire.NCPU}, nil
 }
 
 // Sample is one resource-usage reading of a container.

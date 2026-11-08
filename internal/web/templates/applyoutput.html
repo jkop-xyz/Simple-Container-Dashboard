@@ -7,7 +7,7 @@
 {{template "head"}}
 </head>
 <body class="logs-page">
-{{template "shell-start" (dict "Hostname" .Hostname "Page" "history" "Parent" "Apply history" "ParentHref" "/history" "Crumb" (printf "Apply of %s" (rel .Rec.Finished)))}}
+{{template "shell-start" (dict "Hostname" .Hostname "Page" "history" "Grand" "Deployment" "GrandHref" "/deployment" "Parent" "Apply history" "ParentHref" "/history" "Crumb" (printf "Apply of %s" (rel .Rec.Finished)))}}
   <div class="card log-card">
     <div class="card-head">
       <h1 class="entry-title">Apply of <time title="{{when .Rec.Finished}}">{{rel .Rec.Finished}}</time></h1>
@@ -15,8 +15,24 @@
       <span class="muted">took {{took .Rec.Duration}}</span>
       <span class="card-head-end">{{template "outcome" .Rec}}</span>
     </div>
+    {{with .Rec.Results}}
+    <div class="table-wrap">
+    <table class="grid">
+      <thead><tr><th scope="col">Stack</th><th scope="col">Action</th><th scope="col">Outcome</th><th scope="col">Afterwards</th></tr></thead>
+      <tbody>
+      {{range .}}
+        <tr class="history-result plan-entry" data-stack="{{.Stack}}" data-outcome="{{.Action}}">
+          <td class="name">{{.Stack}}</td><td><span class="action">{{.Action}}</span></td>
+          <td>{{if .Error}}<span class="bad">failed:</span> <pre class="history-error">{{.Error}}</pre>{{else}}<span class="ok">ok</span>{{end}}</td>
+          <td class="after">{{with .After}}<span class="badge {{if eq . "healthy"}}badge-ok{{else if eq . "still starting"}}badge-neutral{{else}}badge-bad{{end}} after-{{.}}">{{.}}</span>{{else}}<span class="faint">—</span>{{end}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    </div>
+    {{end}}
     {{if .Kept}}
-    <pre class="terminal log apply-output-kept">{{range .Lines}}<span class="{{line .}}">{{.}}</span>
+    <pre class="terminal log apply-output-kept" tabindex="0" role="region" aria-label="Apply output">{{range .Lines}}<span class="{{line .}}">{{.}}</span>
 {{end}}</pre>
     {{else}}
     <p class="empty card-pad">No output was kept for this Apply.</p>

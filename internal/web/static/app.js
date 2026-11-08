@@ -68,8 +68,8 @@ async function refreshStatus() {
   try {
     const res = await fetch("/api/status", { cache: "no-store" });
     if (!res.ok) return;
-    const { containers } = await res.json();
-    const peakMem = Math.max(0, ...containers.map((c) => c.memoryBytes || 0));
+    const { containers, memTotal } = await res.json();
+    const peakMem = memTotal || Math.max(0, ...containers.map((c) => c.memoryBytes || 0));
     for (const c of containers) {
       const row = document.querySelector(`tr.container[data-id="${CSS.escape(c.id)}"]`);
       if (!row) continue;
@@ -94,7 +94,7 @@ async function refreshStatus() {
       const spark = row.querySelector(".spark-fill");
       if (spark) { spark.setAttribute("d", c.spark || ""); spark.setAttribute("class", `spark-fill${load}`); }
       const membar = row.querySelector(".membar-fill");
-      if (membar) membar.style.width = `${peakMem ? (c.memoryBytes / peakMem) * 100 : 0}%`;
+      if (membar) membar.style.width = `${peakMem ? Math.min(100, (c.memoryBytes / peakMem) * 100) : 0}%`;
       row.querySelector(".mem").textContent = c.memory;
       row.querySelector(".status").textContent = c.status;
     }
@@ -277,6 +277,8 @@ syncAppbarHeight();
 window.addEventListener("resize", syncAppbarHeight);
 function setNav(open, { focusToggle = false } = {}) {
   document.body.classList.toggle("nav-open", open);
+  // While the drawer is open, everything behind it is out of reach.
+  for (const el of document.querySelectorAll("main, .toolbar, .search, .appbar-actions")) el.inert = open;
   navToggle?.setAttribute("aria-expanded", String(open));
   if (scrim) scrim.hidden = !open;
   if (open) document.querySelector("#sidenav .nav-item")?.focus();
@@ -293,7 +295,11 @@ document.addEventListener("keydown", (e) => {
 const search = document.querySelector(".global-search");
 const table = document.querySelector("table.containers");
 if (search && table) {
-  const status = document.querySelector(".no-match");
+  const none = document.querySelector(".no-match");
+  const status = document.querySelector(".search-status");
+  const count = document.querySelector(".container-count");
+  const countText = count?.textContent;
+  const total = document.querySelectorAll("tr.container").length;
   const apply = () => {
     const q = search.value.trim().toLowerCase();
     let shown = 0;
@@ -315,10 +321,9 @@ if (search && table) {
       const el = document.querySelector(sel);
       if (el) el.hidden = q !== "";
     }
-    if (status) {
-      status.hidden = !q;
-      status.textContent = shown ? `${shown} container${shown === 1 ? "" : "s"} match “${search.value.trim()}”.` : "No containers match your search.";
-    }
+    if (none) none.hidden = !q || shown > 0;
+    if (count) count.textContent = q ? `${shown} shown of ${total}` : countText;
+    if (status) status.textContent = q ? (shown ? `${shown} container${shown === 1 ? "" : "s"} match “${search.value.trim()}”.` : "No containers match your search.") : "";
   };
   search.form?.addEventListener("submit", (e) => { e.preventDefault(); apply(); });
   search.addEventListener("input", apply);

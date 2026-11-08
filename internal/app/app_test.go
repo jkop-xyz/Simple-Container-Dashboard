@@ -91,7 +91,7 @@ func TestDashboardListsAllContainersIncludingStopped(t *testing.T) {
 		dockertest.Container{ID: "b2", Name: "backup", Image: "restic:0.17", State: "exited", Status: "Exited (1) 3 hours ago"},
 	)
 
-	code, body := h.get("/")
+	code, body := h.get("/containers")
 	if code != http.StatusOK {
 		t.Fatalf("status %d, body:\n%s", code, body)
 	}
@@ -102,7 +102,7 @@ func TestDashboardListsAllContainersIncludingStopped(t *testing.T) {
 }
 
 func TestDashboardWithNoContainers(t *testing.T) {
-	_, body := startDashboard(t).get("/")
+	_, body := startDashboard(t).get("/containers")
 	assertContains(t, body, "No containers on this host")
 }
 

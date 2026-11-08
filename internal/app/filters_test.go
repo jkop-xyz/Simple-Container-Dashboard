@@ -59,9 +59,9 @@ func TestTilesLinkToFiltersAndCountTheWholeHost(t *testing.T) {
 	// The side navigation keeps describing the whole host while a filter is active.
 	assertContains(t, body, `href="/containers?filter=attention"`, `<span class="nav-count nav-count-bad" data-count="attention">1</span>`,
 		`href="/containers?filter=stopped"`)
-	_, overview := e.get("/")
+	_, overview := e.get("/containers")
 	assertContains(t, overview, `data-count="total">4<`, `data-count="stopped">1<`, "3 of 4 running")
-	_, all := e.get("/")
+	_, all := e.get("/containers")
 	if strings.Contains(all, "Showing only") {
 		t.Error("no filter, but the filter bar shows")
 	}
@@ -122,7 +122,7 @@ func TestContainersAndDeploymentArePagesOfTheirOwn(t *testing.T) {
 
 func TestHeaderStaysPinned(t *testing.T) {
 	_, css := startDashboard(t).get("/static/style.css")
-	assertContains(t, css, ".header { position: sticky; top: 0;", "scroll-margin-top: calc(var(--header)")
+	assertContains(t, css, ".header { position: sticky; top: 0;", "scroll-padding-top: calc(var(--header)", "@media (max-height: 600px)")
 	_, body := startDashboard(t).get("/")
 	if !strings.Contains(body, `<div class="header">`) || strings.Index(body, `class="toolbar"`) > strings.Index(body, `<div class="layout">`) {
 		t.Error("the app bar and toolbar should share the sticky header")

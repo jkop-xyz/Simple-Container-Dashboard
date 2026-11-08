@@ -9,7 +9,8 @@
 <body>
 {{if .Filter}}{{template "shell-start" (dict "Hostname" .Hostname "Page" .View "Filter" .Filter "Parent" "Containers" "ParentHref" "/containers" "Crumb" (filterTitle .Filter) "Index" . "Q" .Q)}}
 {{else}}{{template "shell-start" (dict "Hostname" .Hostname "Page" .View "Crumb" (title .View) "Index" . "Q" .Q)}}{{end}}
-  <h1 class="visually-hidden">Containers on {{.Hostname}}</h1>
+  <h1 class="visually-hidden">{{if eq .View "containers"}}Containers{{if .Filter}}: {{filterTitle .Filter}}{{end}}{{else if eq .View "deployment"}}Deployment{{else}}Overview{{end}} of {{.Hostname}}</h1>
+  <p class="visually-hidden search-status" role="status" aria-live="polite"></p>
   {{if .Demo}}<div class="callout callout-info demo-banner" role="note">{{template "i-info"}}
     <div><b>Demo mode.</b> The containers, the Deployment Repo and every deploy are simulated in memory; nothing on this machine is touched.</div>
     <form method="post" action="/demo/push"><button class="btn btn-text btn-sm">Simulate a push</button></form>
@@ -18,7 +19,14 @@
   {{if .Error}}<div class="callout callout-bad error" role="alert">{{template "i-error"}}<div>Can't reach the container runtime: {{.Error}}</div></div>{{end}}
   {{if .RepoError}}<div class="callout callout-bad error" role="status">{{template "i-error"}}<div>Deployment Repo unavailable: {{.RepoError}}</div></div>{{end}}
 
-  {{if or .Filter .Q}}<div class="filter-bar" role="status">
+  {{if ne .View "containers"}}{{with .Pending}}{{if not (and $.Sync $.Sync.Plan (not $.Sync.Stale))}}
+  <div class="callout callout-info pending-bar" role="status">{{template "i-info"}}
+    <div><b>{{len .}} pending change{{if ne (len .) 1}}s{{end}}:</b> {{range $i, $g := .}}{{if $i}}, {{end}}{{if $g.Selected}}deploy{{else}}tear down{{end}} <b>{{$g.Stack.Name}}</b>{{end}}. Sync to review the plan, then Apply.</div>
+    <form method="post" action="/sync"><button class="btn btn-text btn-sm sync-button">Sync now</button></form>
+  </div>
+  {{end}}{{end}}{{end}}
+
+  {{if or .Filter .Q}}<div class="filter-bar">
     <span>{{if .Filter}}Showing only <b>{{.FilterLabel}}</b>{{else}}Showing containers and Stacks matching <b>“{{.Q}}”</b>{{end}}.</span>
     <a class="btn btn-text btn-sm show-all" href="/containers">Show everything</a>
   </div>{{end}}
@@ -30,11 +38,17 @@
       <a class="card-head-end btn btn-text btn-sm" href="/containers?filter=attention">Show only these</a></div>
     <ul class="attention-list">
       {{range .}}<li class="attention-item sev-{{.Severity}}">
-        <span class="attention-icon">{{template "i-error"}}</span>
-        <a class="attention-name" href="#c-{{.ID}}">{{.Name}}</a>
-        <span class="muted">{{if .Stack}}in {{.Stack}}{{else}}unmanaged{{end}}</span>
-        <span class="badge badge-{{.Severity}}">{{.Reason}}</span>
-        <a class="btn btn-text btn-sm" href="/containers/{{.ID}}/logs" aria-label="Logs for {{.Name}}">Logs</a>
+        <div class="attention-main">
+          <span class="attention-icon">{{template "i-error"}}</span>
+          <a class="attention-name" href="/containers?filter=attention#c-{{.ID}}">{{.Name}}</a>
+          <span class="muted">{{if .Stack}}in {{.Stack}}{{else}}unmanaged{{end}}</span>
+          <span class="badge badge-{{.Severity}}">{{.Reason}}</span>
+          <a class="btn btn-text btn-sm" href="/containers/{{.ID}}/logs" aria-label="Logs for {{.Name}}">Logs</a>
+        </div>
+        {{if or .ExitCode .OOMKilled .HealthOutput}}<div class="attention-detail">
+          {{if or .ExitCode .OOMKilled}}<span>Last exit <b class="mono">{{.ExitCode}}</b>{{if .OOMKilled}} · <b>killed: out of memory</b>{{end}}{{if not .FinishedAt.IsZero}} · <time title="{{when .FinishedAt}}">{{ago .FinishedAt}}</time>{{end}}</span>{{end}}
+          {{with .HealthOutput}}<details class="health-out"><summary>Last failing healthcheck</summary><pre>{{.}}</pre></details>{{end}}
+        </div>{{end}}
       </li>{{end}}
     </ul>
   </section>
@@ -42,21 +56,56 @@
 
   {{if ne .View "containers"}}{{with .Sync}}{{template "sync" .}}{{end}}{{end}}
 
+  {{if eq .View "overview"}}{{if .Overview.Total}}
+  <div class="charts">
+    <section class="card chart-card" aria-labelledby="cpu-title">
+      <div class="card-head"><h2 id="cpu-title">CPU usage</h2><span class="card-head-end muted chart-now" data-now="cpu"></span></div>
+      <div class="chart" data-series="cpu" data-unit="cores" role="img" aria-label="Host CPU usage over the last 30 minutes"><p class="chart-empty">Collecting data…</p></div>
+    </section>
+    <section class="card chart-card" aria-labelledby="mem-title">
+      <div class="card-head"><h2 id="mem-title">Memory usage</h2><span class="card-head-end muted chart-now" data-now="memory"></span></div>
+      <div class="chart" data-series="memory" data-unit="bytes" data-total="{{.MemTotal}}" role="img" aria-label="Host memory usage over the last 30 minutes"><p class="chart-empty">Collecting data…</p></div>
+    </section>
+  </div>
+  {{end}}
+
   {{$groups := .ActiveGroups}}
-  {{if and (ne .View "deployment") (or $groups .Other)}}
+  {{if or $groups .Other}}
+  <section class="card stack-summary" aria-labelledby="summary-title">
+    <div class="card-head"><h2 id="summary-title">Stacks</h2>
+      <span class="card-head-end"><a class="btn btn-text btn-sm" href="/containers">All containers</a><a class="btn btn-text btn-sm" href="/deployment">Manage Stacks</a></span></div>
+    <ul class="summary-list">
+      {{range $groups}}<li class="summary-row si-{{stackIcon .}}">
+        {{template "status-icons"}}
+        <a class="summary-name" href="/containers?q={{.Stack.Name}}">{{.Stack.Name}}</a>
+        <span class="muted kind">{{.Stack.Kind}}</span>
+        <span class="summary-state {{if or .Unhealthy .CrashLooping}}bad{{else if lt .Running (len .Containers)}}warn-text{{else}}muted{{end}}">{{if .CrashLooping}}{{.CrashLooping}} crash-looping · {{end}}{{if .Unhealthy}}{{.Unhealthy}} unhealthy · {{end}}{{if .Containers}}{{.Running}}/{{len .Containers}} running{{else}}no containers yet{{end}}</span>
+        {{if and (not .Selected) .Deployed}}<span class="badge badge-bad">torn down at next Apply</span>{{else if and .Selected (not .Deployed)}}<span class="badge badge-ok">deploys at next Apply</span>{{end}}
+      </li>{{end}}
+      {{with .Other}}<li class="summary-row si-ok">{{template "status-icons"}}<a class="summary-name" href="/containers?filter=unmanaged">Other</a><span class="muted kind">unmanaged</span><span class="summary-state muted">{{len .}} container{{if ne (len .) 1}}s{{end}}</span></li>{{end}}
+    </ul>
+  </section>
+  {{end}}
+
+  {{template "last-apply-card" .}}
+  {{end}}
+
+  {{if eq .View "containers"}}
+  {{$groups := .ActiveGroups}}
+  {{if or $groups .Other}}
   <section id="containers" class="card containers-card" aria-labelledby="containers-title">
     <div class="card-head"><h2 id="containers-title">Containers</h2>
-      <span class="card-head-end muted">{{if or .Filter .Q}}{{shown .Dashboard}} shown of {{.Overview.Total}}{{else}}{{.Overview.Running}} of {{.Overview.Total}} running{{end}}</span></div>
+      <span class="card-head-end muted container-count">{{if or .Filter .Q}}{{shown .Dashboard}} shown of {{.Overview.Total}}{{else}}{{.Overview.Running}} of {{.Overview.Total}} running{{end}}</span></div>
     <div class="table-wrap" tabindex="0" role="region" aria-labelledby="containers-title">
     <table class="containers grid">
       <colgroup><col class="c-name"><col class="c-status"><col class="c-restarts"><col class="c-cpu"><col class="c-mem"><col class="c-ports"><col class="c-act"></colgroup>
-      <thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col" class="num col-restarts">Restarts</th><th scope="col">CPU</th><th scope="col">Memory</th><th scope="col" class="col-ports">Ports</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+      <thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col" class="num col-restarts">Restarts</th><th scope="col">CPU</th><th scope="col">Memory{{with .MemTotal}} <span class="muted th-note">of host</span>{{end}}</th><th scope="col" class="col-ports">Ports</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
       {{range $groups}}
       <tbody class="stack{{if not .Selected}} unselected{{end}}{{if .Stack.Problem}} is-invalid{{end}}" data-stack="{{.Stack.Name}}">
         <tr class="group-row"><th scope="rowgroup" colspan="7">
           <span class="group-name">{{.Stack.Name}}</span>
-          <span class="badge badge-neutral kind">{{.Stack.Kind}}</span>
-          {{if .Containers}}<span class="badge stack-pill {{if or .Unhealthy .CrashLooping}}badge-bad{{else if lt .Running (len .Containers)}}badge-warn{{else if .Restarted}}badge-warn{{else}}badge-ok{{end}}">{{if .CrashLooping}}{{.CrashLooping}} crash-looping · {{end}}{{if .Unhealthy}}{{.Unhealthy}} unhealthy · {{end}}{{.Running}}/{{len .Containers}} running</span>{{end}}
+          <span class="muted kind">{{.Stack.Kind}}</span>
+          {{if .Containers}}{{if or .Unhealthy .CrashLooping (lt .Running (len .Containers)) .Restarted}}<span class="badge stack-pill {{if or .Unhealthy .CrashLooping}}badge-bad{{else}}badge-warn{{end}}">{{if .CrashLooping}}{{.CrashLooping}} crash-looping · {{end}}{{if .Unhealthy}}{{.Unhealthy}} unhealthy · {{end}}{{.Running}}/{{len .Containers}} running</span>{{end}}{{end}}
           {{if and (not .Selected) .Deployed}}<span class="badge badge-bad pending">torn down at next Apply</span>{{end}}
         </th></tr>
         {{range .Units}}
@@ -73,8 +122,7 @@
       {{end}}
       {{if .Other}}
       <tbody class="stack other" data-stack="">
-        <tr class="group-row"><th scope="rowgroup" colspan="7"><span class="group-name">Other</span> <span class="badge badge-neutral kind">unmanaged</span>
-          <span class="muted group-note">not from the Deployment Repo</span></th></tr>
+        <tr class="group-row"><th scope="rowgroup" colspan="7"><span class="group-name">Other</span> <span class="muted kind">unmanaged · not from the Deployment Repo</span></th></tr>
         {{range .Other}}{{template "container-row" (dict "C" . "Host" $.BrowserHost "Sparks" $.Sparks "MaxMem" $.MaxMem "Stack" "")}}{{end}}
       </tbody>
       {{end}}
@@ -82,70 +130,62 @@
     </div>
   </section>
   {{end}}
+  {{end}}
 
-  {{if ne .View "containers"}}{{if .Groups}}
+  {{if eq .View "deployment"}}
+  {{if .Groups}}
   <section id="stacks" class="card stacks-card" aria-labelledby="stacks-title">
     <div class="card-head"><h2 id="stacks-title">Stacks</h2>
       <span class="card-head-end muted">Switch a Stack on or off, then Sync and Apply.</span></div>
+    {{with .AutoUpdate}}<p class="timer-line {{if eq . "active"}}ok{{else}}warn-text{{end}}">{{if eq . "active"}}{{template "i-check"}}{{else}}{{template "i-warn"}}{{end}} <span class="auto-update">{{"podman-auto-update.timer"}}: <b class="timer-{{.}}">{{.}}</b></span></p>{{end}}
     <ul class="stack-list">
-      {{range $groups}}{{template "stack-row" .}}{{end}}
+      {{range .ActiveGroups}}{{template "stack-row" (dict "G" . "H" "h3")}}{{end}}
     </ul>
     {{with .Inactive}}
     <h3 class="list-heading">Not on this host</h3>
     <ul class="stack-list">
-      {{range .}}{{template "stack-row" .}}{{end}}
+      {{range .}}{{template "stack-row" (dict "G" . "H" "h4")}}{{end}}
     </ul>
     {{end}}
   </section>
-  {{end}}{{end}}
-
-  {{if eq .View "deployment"}}
-  <section class="card" aria-labelledby="history-title">
-    <div class="card-head"><h2 id="history-title">Apply history</h2>
-      <a class="card-head-end btn btn-text btn-sm" href="/history">View all</a></div>
-    {{with .LastApply}}<div class="history-latest">
-      <span>Last Apply <time title="{{when .Finished}}">{{rel .Finished}}</time></span>{{template "range" .}}{{template "outcome" .}}
-      {{if .ID}}<a class="btn btn-text btn-sm" href="/history/{{.ID}}">View output</a>{{end}}
-    </div>{{else}}<p class="empty card-pad">No Applies yet.</p>{{end}}
-  </section>
   {{end}}
-
-  {{if eq .View "overview"}}{{if .Overview.Total}}
-  <div class="charts">
-    <section class="card chart-card" aria-labelledby="cpu-title">
-      <div class="card-head"><h2 id="cpu-title">CPU usage</h2><span class="card-head-end muted chart-now" data-now="cpu"></span></div>
-      <div class="chart" data-series="cpu" data-unit="cores" role="img" aria-label="Host CPU usage over the last 30 minutes"><p class="chart-empty">Collecting data…</p></div>
-    </section>
-    <section class="card chart-card" aria-labelledby="mem-title">
-      <div class="card-head"><h2 id="mem-title">Memory usage</h2><span class="card-head-end muted chart-now" data-now="memory"></span></div>
-      <div class="chart" data-series="memory" data-unit="bytes" role="img" aria-label="Host memory usage over the last 30 minutes"><p class="chart-empty">Collecting data…</p></div>
-    </section>
-  </div>
-  {{end}}{{end}}
+  {{template "last-apply-card" .}}
+  {{end}}
 
   {{if and (not .Groups) (not .Other) (not .Error)}}
   <div class="empty-state card"><p class="empty">{{if or .Filter .Q}}Nothing matches.{{else}}No containers on this host.{{end}}</p></div>
   {{end}}
-  <p class="no-match empty card" role="status" hidden>No containers match your search.</p>
+  <p class="no-match empty card" hidden>No containers match your search.</p>
 {{template "shell-end"}}
 </body>
 </html>
 
-{{define "stack-row"}}
-      <li class="stack stack-row{{if not .Selected}} unselected{{end}}{{if .Stack.Problem}} is-invalid{{end}}" data-stack="{{.Stack.Name}}">
+{{define "last-apply-card"}}{{if .Sync}}
+  <section class="card" aria-labelledby="history-title">
+    <div class="card-head"><h2 id="history-title">Last Apply</h2>
+      <a class="card-head-end btn btn-text btn-sm" href="/history">Apply history</a></div>
+    {{with .LastApply}}<div class="history-latest">
+      <time title="{{when .Finished}}">{{rel .Finished}}</time>{{template "range" .}}<span class="muted took">took {{took .Duration}}</span>{{template "outcome" .}}
+      {{if .ID}}<a class="btn btn-text btn-sm" href="/history/{{.ID}}">View output</a>{{end}}
+    </div>{{else}}<p class="empty card-pad">No Applies yet.</p>{{end}}
+  </section>
+{{end}}{{end}}
+
+{{define "stack-row"}}{{$g := .G}}
+      <li class="stack stack-row{{if not $g.Selected}} unselected{{end}}{{if $g.Stack.Problem}} is-invalid{{end}}" data-stack="{{$g.Stack.Name}}">
         <div class="stack-main">
-          {{template "switch" .}}
-          <h3 class="stack-name">{{.Stack.Name}}</h3>
-          <span class="badge badge-neutral kind">{{.Stack.Kind}}</span>
-          {{with .Stack.Problem}}<span class="badge badge-bad invalid">invalid</span>{{end}}
+          {{template "switch" $g}}
+          {{if eq .H "h4"}}<h4 class="stack-name">{{$g.Stack.Name}}</h4>{{else}}<h3 class="stack-name">{{$g.Stack.Name}}</h3>{{end}}
+          <span class="muted kind">{{$g.Stack.Kind}}</span>
+          {{with $g.Stack.Problem}}<span class="badge badge-bad invalid">invalid</span>{{end}}
           <span class="stack-end">
-            {{if and (not .Selected) .Deployed}}<span class="badge badge-bad pending">torn down at next Apply</span>{{else if and .Selected (not .Deployed)}}<span class="badge badge-ok pending">deploys at next Apply</span>{{end}}
-            {{if .Containers}}<span class="muted">{{.Running}}/{{len .Containers}} running</span>{{if not .Selected}} · <span class="not-selected">not selected</span>{{end}}
-            {{else if not .Selected}}<span class="not-selected">not selected · no containers</span>{{end}}
+            {{if and (not $g.Selected) $g.Deployed}}<span class="badge badge-bad pending">torn down at next Apply</span>{{else if and $g.Selected (not $g.Deployed)}}<span class="badge badge-ok pending">deploys at next Apply</span>{{end}}
+            {{if $g.Containers}}{{if not $g.Selected}}<span class="not-selected">not selected</span>{{end}}
+            {{else if not $g.Selected}}<span class="not-selected">not selected · no containers</span>{{end}}
           </span>
         </div>
-        {{with .Stack.Problem}}<p class="problem">This Stack {{.}}.</p>{{end}}
-        {{with .Stack.Warning}}<p class="warning">This Stack {{.}}.</p>{{end}}
+        {{with $g.Stack.Problem}}<p class="problem">This Stack {{.}}.</p>{{end}}
+        {{with $g.Stack.Warning}}<p class="warning">This Stack {{.}}.</p>{{end}}
       </li>{{end}}
 
 {{define "sync"}}

@@ -21,7 +21,7 @@ func TestProblemsAreListedUnderNeedsAttention(t *testing.T) {
 
 	_, att, _ := strings.Cut(body, `id="attention"`)
 	att, _, _ = strings.Cut(att, "</section>")
-	assertContains(t, att, `href="#c-h1"`, "ha-core-1", "in ha", "unhealthy · restarted 3×", `href="#c-x1"`, "exited (1)", "unmanaged")
+	assertContains(t, att, `href="/containers?filter=attention#c-h1"`, "ha-core-1", "in ha", "unhealthy · restarted 3×", `href="/containers?filter=attention#c-x1"`, "exited (1)", "unmanaged")
 	for _, healthy := range []string{"web-1", ">done<"} {
 		if strings.Contains(att, healthy) {
 			t.Errorf("%s doesn't need attention", healthy)
@@ -29,7 +29,9 @@ func TestProblemsAreListedUnderNeedsAttention(t *testing.T) {
 	}
 	assertContains(t, body, `href="/containers?filter=attention"`, `data-count="attention">2<`)
 	assertContains(t, splitSections(body)["ha"], "badge-bad", "1 unhealthy · 1/1 running")
-	assertContains(t, splitSections(body)["web"], "badge-ok", "1/1 running")
+	if strings.Contains(splitSections(body)["web"], "stack-pill") {
+		t.Error("a healthy Stack's group row should stay quiet")
+	}
 	assertContains(t, body, `is-unhealthy" data-id="h1"`)
 }
 

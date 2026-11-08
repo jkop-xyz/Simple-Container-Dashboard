@@ -12,7 +12,7 @@ import (
 // getAs fetches the dashboard as if the browser had used host to reach it.
 func (h *harness) getAs(host string) string {
 	h.t.Helper()
-	req, _ := http.NewRequest(http.MethodGet, h.srv.URL+"/", nil)
+	req, _ := http.NewRequest(http.MethodGet, h.srv.URL+"/containers", nil)
 	req.Host = host
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

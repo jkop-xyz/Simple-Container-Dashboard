@@ -18,7 +18,7 @@
 
 {{define "logo"}}<svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="currentColor"/><path d="M9 10h14v4H9zM9 18h9v4H9z" fill="#fff"/></svg>{{end}}
 
-{{define "brand"}}<a class="brand" href="/" aria-label="scd: back to the dashboard">{{template "logo"}}<span class="brand-text"><span class="brand-name">scd</span><span class="brand-sub">Simple Container Dashboard</span></span></a>{{end}}
+{{define "brand"}}<a class="brand" href="/" title="Simple Container Dashboard">{{template "logo"}}<span class="brand-name">scd</span><span class="visually-hidden"> (Simple Container Dashboard), Overview</span></a>{{end}}
 
 {{/* shell-start: .Hostname, .Page, .Crumb, .Parent/.ParentHref (optional), .Index (dashboard data or nil), .Q (search text) */}}
 {{define "shell-start"}}
@@ -38,8 +38,9 @@
     <form method="post" action="/sync"><button class="sync-button btn btn-text"{{if .Sync.Running}} disabled{{end}}>
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4V1L8 5l4 4V6a6 6 0 0 1 5.7 7.9l1.5 1.5A8 8 0 0 0 12 4zm0 14a6 6 0 0 1-5.7-7.9L4.8 8.6A8 8 0 0 0 12 20v3l4-4-4-4v3z" fill="currentColor"/></svg>
       Sync</button></form>
-    <form method="post" action="/apply"><button class="apply-button"{{if not .Sync.CanApply}} disabled{{end}} data-variant="primary">
+    <form method="post" action="/apply"><button class="apply-button"{{if not .Sync.CanApply}} disabled{{end}} data-variant="primary"{{with .ApplyHint}} title="{{.}}" aria-describedby="apply-hint"{{end}}>
       Apply{{with .Sync.Plan}}{{if and $.Index.Sync.CanApply .Changes}} <span class="count">{{.Changes}}</span>{{end}}{{end}}</button></form>
+    {{with .ApplyHint}}<span id="apply-hint" class="visually-hidden">{{.}}</span>{{end}}
   </div>{{end}}{{end}}
 </header>
 
@@ -47,6 +48,7 @@
   <nav class="crumbs" aria-label="Breadcrumb">
     {{if eq .Page "overview"}}<span class="crumb crumb-current" aria-current="page">Overview</span>
     {{else}}<a class="crumb crumb-home" href="/">Overview</a>
+      {{with .Grand}}{{template "i-chevron"}}<a class="crumb" href="{{$.GrandHref}}">{{.}}</a>{{end}}
       {{with .Parent}}{{template "i-chevron"}}{{if $.ParentHref}}<a class="crumb" href="{{$.ParentHref}}">{{.}}</a>{{else}}<span class="crumb">{{.}}</span>{{end}}{{end}}
       {{template "i-chevron"}}<span class="crumb crumb-current" aria-current="page">{{.Crumb}}</span>{{end}}
   </nav>
@@ -56,8 +58,6 @@
       {{if not .OK}}{{template "i-error"}}{{else if .BadAfter}}{{template "i-warn"}}{{else}}{{template "i-check"}}{{end}}
       <span>last Apply {{ago .Finished}} ·
       {{if not .OK}}<span class="bad">{{if .Error}}stopped{{else}}{{.Failures}} failed{{end}}</span>{{else if .BadAfter}}<span class="warn-text">{{.BadAfter}} unhealthy after</span>{{else if eq .HealthCheck "checking"}}<span class="ok">succeeded</span> · checking health…{{else}}<span class="ok">succeeded</span>{{end}}</span></a></li>{{end}}
-    {{with .AutoUpdate}}<li class="auto-update {{if eq . "active"}}chip-ok{{else}}chip-warn{{end}}">{{if eq . "active"}}{{template "i-check"}}{{else}}{{template "i-warn"}}{{end}}{{"podman-auto-update.timer"}}: <b class="timer-{{.}}">{{.}}</b></li>{{end}}
-    {{with .NewRelease}}<li><a class="new-release" href="https://github.com/jkop-xyz/Simple-Container-Dashboard/releases/tag/{{.}}" target="_blank" rel="noopener">{{template "i-info"}}new version {{.}} available</a></li>{{end}}
   </ul>{{end}}
 </div>
 </div>
@@ -83,6 +83,7 @@
         <li><a class="nav-item{{if eq .Page "history"}} is-active{{end}}" href="/history"{{if eq .Page "history"}} aria-current="page"{{end}}>Apply history</a></li>
       </ul></li>
   </ul>
+  {{with .Index}}{{with .NewRelease}}<a class="nav-release new-release" href="https://github.com/jkop-xyz/Simple-Container-Dashboard/releases/tag/{{.}}" target="_blank" rel="noopener">{{template "i-info"}}<span>new version {{.}} available</span></a>{{end}}{{end}}
 </nav>
 <main id="main" class="page" tabindex="-1">
 {{end}}
@@ -110,7 +111,7 @@
   <label class="switch">
     <input type="checkbox" name="selected" value="true"{{if .Selected}} checked{{end}} data-stack="{{.Stack.Name}}">
     <span class="switch-track" aria-hidden="true"></span>
-    <span class="switch-label">Run<span class="visually-hidden"> {{.Stack.Name}}</span> here</span>
+    <span class="switch-label">Run here<span class="visually-hidden">: {{.Stack.Name}}</span></span>
   </label>
   <noscript><button class="btn btn-text btn-sm">Save</button></noscript>
 </form>{{end}}
@@ -128,7 +129,7 @@
           <span class="health health-{{$c.Health}}">{{health $c.Health}}</span>
           <span class="crashloop-badge"{{if not $c.CrashLooping}} hidden{{end}}>crash-looping</span>
         </div>
-        <div class="status">{{$c.Status}}</div>
+        <div class="status" title="{{$c.Status}}">{{$c.Status}}</div>
       </td>
       <td class="num col-restarts"><span class="restarts-badge{{if not $c.RestartCount}} is-zero{{end}}" title="restarts"><span class="restarts">{{$c.RestartCount}}</span></span></td>
       <td>
@@ -140,8 +141,8 @@
       </td>
       <td>
         <div class="metric">
-          <span class="membar" aria-hidden="true"><span class="membar-fill" style="width: {{memBar $c.Memory .MaxMem}}%"></span></span>
-          <span class="mem num">{{mem $c}}</span>
+          <span class="membar" aria-hidden="true"{{with pct $c.Memory .MaxMem}} title="{{.}}"{{end}}><span class="membar-fill" style="width: {{memBar $c.Memory .MaxMem}}%"></span></span>
+          <span class="mem num"{{with pct $c.Memory .MaxMem}} title="{{.}}"{{end}}>{{mem $c}}</span>
         </div>
       </td>
       <td class="ports col-ports">{{if not (ports $c.Container .Host)}}<span class="faint">—</span>{{end}}{{range ports $c.Container .Host}}{{if .URL}}<a class="port" href="{{.URL}}" target="_blank" rel="noopener" aria-label="Open port {{.Port}} in a new tab">{{.Port}}{{template "i-open"}}</a>{{else}}<span class="port text">{{.Label}}</span>{{end}} {{end}}</td>
@@ -149,7 +150,7 @@
     </tr>{{end}}
 
 {{/* An Apply's commit range: "at abc1234" when it didn't move, else "abc1234 → def5678". */}}
-{{define "range"}}{{if eq .From .To}}<span class="range">at <code title="{{.To}}">{{short .To}}</code></span>{{else}}<span class="range"><code title="{{.From}}">{{short .From}}</code><span class="arrow" aria-label="to">→</span><code title="{{.To}}">{{short .To}}</code></span>{{end}}{{end}}
+{{define "range"}}{{if eq .From .To}}<span class="range">at <code title="{{.To}}">{{short .To}}</code></span>{{else}}<span class="range"><code title="{{.From}}">{{short .From}}</code><span class="arrow" aria-hidden="true">→</span><span class="visually-hidden"> to </span><code title="{{.To}}">{{short .To}}</code></span>{{end}}{{end}}
 
 {{/* An Apply record's outcome, with an icon. */}}
 {{define "outcome"}}{{if not .OK}}<span class="outcome outcome-bad">{{template "i-error"}}{{if .Error}}stopped{{else}}{{.Failures}} failed{{end}}</span>{{else if .BadAfter}}<span class="outcome outcome-warn after-summary">{{template "i-warn"}}applied · {{.BadAfter}} unhealthy after</span>{{else}}<span class="outcome outcome-ok">{{template "i-check"}}succeeded</span>{{end}}{{end}}

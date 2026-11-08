@@ -33,6 +33,10 @@
       <label class="field check"><input type="checkbox" class="log-timestamps"> <span>Timestamps</span></label>
       <button type="button" class="btn btn-secondary btn-sm log-download">Download</button>
     </div>
+    {{if or .D.OOMKilled .D.HealthOutput .D.ExitCode}}<div class="crash-detail">
+      {{if or .D.OOMKilled .D.ExitCode}}<p>{{template "i-error"}} Last exit <b class="mono">{{.D.ExitCode}}</b>{{if .D.OOMKilled}} · <b>killed: out of memory</b>{{end}}{{if not .D.FinishedAt.IsZero}} · <time title="{{when .D.FinishedAt}}">{{ago .D.FinishedAt}}</time>{{end}}</p>{{end}}
+      {{with .D.HealthOutput}}<details class="health-out" open><summary>Last failing healthcheck</summary><pre>{{.}}</pre></details>{{end}}
+    </div>{{end}}
     <p class="log-hint muted">Last <span class="log-tail">{{.Tail}}</span> lines{{if eq .C.State "running"}}, then live{{end}}.{{if .D.RestartCount}} The log spans restarts: pick more lines to see output from before the last one.{{end}}</p>
     <pre class="terminal log" tabindex="0" role="region" aria-label="Log output" data-stream="/containers/{{.C.ID}}/logs/stream" data-name="{{.C.Name}}" aria-live="off"></pre>
   </div>
