@@ -495,3 +495,9 @@ a.tile.tile-bad:hover { border-color: var(--bad); }
 .files code { font-size: 12px; }
 .add { color: var(--ok); font-family: var(--mono); font-size: 12px; }
 .del { color: var(--bad); font-family: var(--mono); font-size: 12px; }
+
+/* History page. */
+.page-narrow { max-width: 1400px; }
+.history-entry .commits { border-bottom: 1px solid var(--border); }
+.took { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.card-pad { padding: 16px; margin: 0; }

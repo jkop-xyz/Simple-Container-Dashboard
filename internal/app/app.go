@@ -147,7 +147,8 @@ func New(opts Options) (*App, error) {
 				},
 			}
 		}
-		deps.Engine = &engine.Engine{Repo: a.repo, State: deps.State, Deployers: deployers, Runtime: rt}
+		deps.Engine = &engine.Engine{Repo: a.repo, State: deps.State, Deployers: deployers, Runtime: rt,
+			Outputs: engine.Outputs{Dir: filepath.Join(opts.DataDir, "applies")}}
 	}
 	if rt == config.Podman {
 		deps.Units = systemd.User{Runner: opts.Runner}
