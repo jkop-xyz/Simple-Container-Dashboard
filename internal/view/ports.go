@@ -10,8 +10,24 @@ import (
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/dockerapi"
 )
 
-// SchemeLabel switches a container's port links to another scheme, e.g. "https".
+// SchemeLabel switches all of a container's port links to another scheme, e.g. "https".
+// SchemeLabel + ".<port>" (e.g. "scd.scheme.8080=https") sets it for one port and wins.
+// Without labels, ports 443 and 8443 link with https and everything else with http.
 const SchemeLabel = "scd.scheme"
+
+// schemeFor picks a port link's scheme.
+func schemeFor(c dockerapi.Container, port int) string {
+	if s := c.Labels[SchemeLabel+"."+strconv.Itoa(port)]; s != "" {
+		return s
+	}
+	if s := c.Labels[SchemeLabel]; s != "" {
+		return s
+	}
+	if port == 443 || port == 8443 {
+		return "https"
+	}
+	return "http"
+}
 
 // PortView is one published port as the dashboard shows it.
 type PortView struct {
@@ -36,10 +52,6 @@ func (p PortView) Label() string {
 // is the hostname the browser used to reach the dashboard. IPv4 and IPv6 bindings of the
 // same port are merged; unpublished ports are left out.
 func Ports(c dockerapi.Container, host string) []PortView {
-	scheme := "http"
-	if s := c.Labels[SchemeLabel]; s != "" {
-		scheme = s
-	}
 	type key struct {
 		port int
 		typ  string
@@ -66,7 +78,7 @@ func Ports(c dockerapi.Container, host string) []PortView {
 	out := make([]PortView, 0, len(merged))
 	for _, pv := range merged {
 		if pv.Type == "tcp" && !pv.Local && host != "" {
-			u := url.URL{Scheme: scheme, Host: net.JoinHostPort(host, strconv.Itoa(pv.Port))}
+			u := url.URL{Scheme: schemeFor(c, pv.Port), Host: net.JoinHostPort(host, strconv.Itoa(pv.Port))}
 			pv.URL = u.String()
 		}
 		out = append(out, *pv)

@@ -35,43 +35,59 @@
 </header>
 
 <main class="page">
+  <h1 class="visually-hidden">Containers on {{.Hostname}}</h1>
   {{if .Demo}}<div class="callout callout-demo demo-banner" role="note">
     <div><b>Demo mode.</b> The containers, the Deployment Repo and every deploy are simulated in memory; nothing on this machine is touched.</div>
     <form method="post" action="/demo/push"><button class="btn btn-secondary btn-sm">Simulate a push to the Deployment Repo</button></form>
   </div>{{end}}
-  {{with .Missing}}<div class="callout callout-bad missing-tools" role="alert">This host is missing tools scd needs: {{range $i, $t := .}}{{if $i}}, {{end}}<code>{{$t}}</code>{{end}}. Run <code>scd setup</code> or install them.</div>{{end}}
+  {{with .Missing}}<div class="callout callout-bad missing-tools" role="status">This host is missing tools scd needs: {{range $i, $t := .}}{{if $i}}, {{end}}<code>{{$t}}</code>{{end}}. Run <code>scd setup</code> or install them.</div>{{end}}
   {{if .Error}}<div class="callout callout-bad error" role="alert">Can't reach the container runtime: {{.Error}}</div>{{end}}
-  {{if .RepoError}}<div class="callout callout-bad error" role="alert">Deployment Repo unavailable: {{.RepoError}}</div>{{end}}
+  {{if .RepoError}}<div class="callout callout-bad error" role="status">Deployment Repo unavailable: {{.RepoError}}</div>{{end}}
 
+  {{$attention := .Attention}}
   {{with .Summary}}{{if or .Total .Stacks}}
   <section class="overview" aria-label="Overview">
-    <div class="tile"><span class="tile-label">Running</span><span class="tile-value">{{.Running}}<small>/ {{.Total}}</small></span><span class="tile-sub">containers</span></div>
-    <div class="tile{{if .Unhealthy}} tile-bad{{end}}"><span class="tile-label">Unhealthy</span><span class="tile-value">{{.Unhealthy}}</span><span class="tile-sub">{{if .Unhealthy}}need attention{{else}}all healthy{{end}}</span></div>
+    <div class="tile"><span class="tile-label">Running</span><span class="tile-value" data-tile="running">{{.Running}}<small>/ {{.Total}}</small></span><span class="tile-sub">containers</span></div>
+    {{if $attention}}<a class="tile tile-bad" href="#attention" data-tile-box="attention">{{else}}<div class="tile" data-tile-box="attention">{{end}}
+      <span class="tile-label">Needs attention</span><span class="tile-value" data-tile="attention">{{len $attention}}</span>
+      <span class="tile-sub">{{if $attention}}{{.Unhealthy}} unhealthy · see below ↓{{else}}all healthy{{end}}</span>
+    {{if $attention}}</a>{{else}}</div>{{end}}
     <div class="tile"><span class="tile-label">Stacks</span><span class="tile-value">{{.Selected}}<small>/ {{.Stacks}}</small></span><span class="tile-sub">selected on this host{{if .Invalid}} · <span class="bad">{{.Invalid}} invalid</span>{{end}}</span></div>
     <div class="tile"><span class="tile-label">Unmanaged</span><span class="tile-value">{{.Unmanaged}}</span><span class="tile-sub">not from the repo</span></div>
   </section>
   {{end}}{{end}}
 
+  {{with $attention}}
+  <section id="attention" class="card attention" aria-labelledby="attention-title">
+    <div class="card-head"><h2 id="attention-title">Needs attention</h2><span class="pill pill-bad">{{len .}}</span></div>
+    <ul class="attention-list">
+      {{range .}}<li class="attention-item sev-{{.Severity}}">
+        <span class="dot" aria-hidden="true"></span>
+        <a class="attention-name" href="#c-{{.ID}}">{{.Name}}</a>
+        <span class="muted">{{if .Stack}}in {{.Stack}}{{else}}unmanaged{{end}}</span>
+        <span class="badge badge-{{.Severity}}">{{.Reason}}</span>
+        <a class="btn btn-ghost btn-sm" href="/containers/{{.ID}}/logs" aria-label="Logs for {{.Name}}">Logs</a>
+      </li>{{end}}
+    </ul>
+  </section>
+  {{end}}
+
   {{with .Sync}}{{template "sync" .}}{{end}}
 
-  {{if or .Groups .Other}}<h2 class="section-title">Stacks</h2>{{end}}
+  {{$active := .ActiveGroups}}
+  {{if or $active .Other}}<h2 class="section-title">Stacks</h2>{{end}}
   <div class="stack-grid">
-  {{range .Groups}}
+  {{range $active}}
   <section class="stack card{{if not .Selected}} unselected{{end}}{{if .Stack.Problem}} is-invalid{{end}}" data-stack="{{.Stack.Name}}">
     <div class="card-head">
-      <form class="select" method="post" action="/stacks/{{.Stack.Name}}/selection">
-        <label class="switch" title="Run {{.Stack.Name}} on this host">
-          <input type="checkbox" name="selected" value="true"{{if .Selected}} checked{{end}} aria-label="Run {{.Stack.Name}} on this host">
-          <span class="switch-track" aria-hidden="true"></span>
-        </label>
-        <noscript><button class="btn btn-sm">Save</button></noscript>
-      </form>
+      {{template "switch" .}}
       <h3 class="stack-name">{{.Stack.Name}}</h3>
-      <span class="chip chip-kind kind">{{.Stack.Kind}}</span>
-      {{with .Stack.Problem}}<span class="chip chip-bad invalid">invalid</span>{{end}}
+      <span class="badge badge-neutral kind">{{.Stack.Kind}}</span>
+      {{with .Stack.Problem}}<span class="badge badge-bad invalid">invalid</span>{{end}}
       <span class="card-head-end">
+        {{if and (not .Selected) .Deployed}}<span class="badge badge-bad pending">torn down at next Apply</span>{{else if and .Selected (not .Deployed)}}<span class="badge badge-ok pending">deploys at next Apply</span>{{end}}
         {{if not .Selected}}<span class="not-selected">not selected</span>{{end}}
-        {{if .Containers}}<span class="pill {{if eq .Running (len .Containers)}}pill-ok{{else if eq .Running 0}}pill-bad{{else}}pill-warn{{end}}">{{.Running}}/{{len .Containers}} running</span>{{end}}
+        {{if .Containers}}<span class="badge stack-pill {{if .Unhealthy}}badge-bad{{else if lt .Running (len .Containers)}}badge-warn{{else if .Restarted}}badge-warn{{else}}badge-ok{{end}}">{{if .Unhealthy}}{{.Unhealthy}} unhealthy · {{end}}{{.Running}}/{{len .Containers}} running</span>{{end}}
       </span>
     </div>
     {{with .Stack.Problem}}<p class="problem">This Stack {{.}}.</p>{{end}}
@@ -79,20 +95,20 @@
     {{with .Units}}
     <div class="table-wrap">
     <table class="units grid">
-      <thead><tr><th>Unit</th><th>State</th><th></th></tr></thead>
+      <thead><tr><th scope="col">Unit</th><th scope="col">State</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
       <tbody>
       {{range .}}
         <tr class="unit unit-{{.ActiveState}}" data-unit="{{.Name}}">
           <td class="name mono">{{.Name}}</td>
           <td><span class="unit-state">{{.ActiveState}}{{if and .SubState (ne .SubState .ActiveState)}} ({{.SubState}}){{end}}</span>{{if eq .LoadState "not-found"}} <span class="muted">not installed</span>{{end}}</td>
-          <td class="actions-cell"><a class="btn btn-ghost btn-sm logs-link" href="/units/{{.Name}}/logs">unit log</a></td>
+          <td class="actions-cell"><a class="btn btn-ghost btn-sm logs-link" href="/units/{{.Name}}/logs" aria-label="Unit log for {{.Name}}">unit log</a></td>
         </tr>
       {{end}}
       </tbody>
     </table>
     </div>
     {{end}}
-    {{if .Containers}}{{template "containers" (dict "Rows" .Containers "Host" $.BrowserHost)}}{{else}}<p class="empty">No containers.{{if not .Selected}} Switch this Stack on, then Sync and Apply to deploy it here.{{end}}</p>{{end}}
+    {{if .Containers}}{{template "containers" (dict "Rows" .Containers "Host" $.BrowserHost)}}{{else}}<p class="empty">No containers yet.{{if not .Deployed}} Sync and Apply to deploy this Stack here.{{end}}</p>{{end}}
   </section>
   {{end}}
 
@@ -100,13 +116,29 @@
   <section class="stack card other" data-stack="">
     <div class="card-head">
       <h3 class="stack-name">Other</h3>
-      <span class="chip chip-kind kind">unmanaged</span>
+      <span class="badge badge-neutral kind">unmanaged</span>
       <span class="card-head-end muted">containers that don't come from the Deployment Repo</span>
     </div>
     {{template "containers" (dict "Rows" .Other "Host" .BrowserHost)}}
   </section>
   {{end}}
   </div>
+
+  {{with .Inactive}}
+  <h2 class="section-title">Not on this host</h2>
+  <div class="card inactive">
+    {{range .}}
+    <section class="stack stack-row unselected{{if .Stack.Problem}} is-invalid{{end}}" data-stack="{{.Stack.Name}}">
+      {{template "switch" .}}
+      <h3 class="stack-name">{{.Stack.Name}}</h3>
+      <span class="badge badge-neutral kind">{{.Stack.Kind}}</span>
+      {{with .Stack.Problem}}<span class="badge badge-bad invalid">invalid</span><span class="problem-inline">This Stack {{.}}.</span>{{else}}<span class="not-selected">not selected · no containers</span>{{end}}
+      {{with .Stack.Warning}}<span class="warning">This Stack {{.}}.</span>{{end}}
+    </section>
+    {{end}}
+  </div>
+  {{end}}
+
   {{if and (not .Groups) (not .Other) (not .Error)}}
   <div class="empty-state"><p class="empty">No containers on this host.</p></div>
   {{end}}
@@ -119,11 +151,11 @@
 <div class="table-wrap">
 <table class="containers grid">
   <colgroup><col class="c-name"><col class="c-state"><col class="c-cpu"><col class="c-mem"><col class="c-ports"><col class="c-act"></colgroup>
-  <thead><tr><th>Container</th><th>State</th><th class="num">CPU</th><th class="num">Memory</th><th>Ports</th><th></th></tr></thead>
+  <thead><tr><th scope="col">Container</th><th scope="col">State</th><th scope="col" class="num">CPU</th><th scope="col" class="num">Memory</th><th scope="col">Ports</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
   <tbody>
   {{$host := .Host}}
   {{range .Rows}}
-    <tr class="container state-{{.State}}" data-id="{{.ID}}">
+    <tr class="container state-{{.State}}{{if eq .Health "unhealthy"}} is-unhealthy{{end}}" data-id="{{.ID}}" id="c-{{.ID}}">
       <td>
         <div class="cname"><span class="dot" aria-hidden="true"></span><span class="name">{{.Name}}</span></div>
         <div class="image mono" title="{{.Image}}">{{.Image}}</div>
@@ -138,11 +170,11 @@
       </td>
       <td class="num">
         <span class="cpu num">{{cpu .}}</span>
-        <span class="bar" aria-hidden="true"><span class="bar-fill" style="width: {{cpuBar .}}%"></span></span>
+        <span class="bar" aria-hidden="true"><span class="bar-fill {{load .}}" style="width: {{cpuBar .}}%"></span></span>
       </td>
       <td class="num"><span class="mem num">{{mem .}}</span></td>
-      <td class="ports">{{if not (ports .Container $host)}}<span class="faint">—</span>{{end}}{{range ports .Container $host}}{{if .URL}}<a class="port" href="{{.URL}}" target="_blank" rel="noopener">{{.Port}} ↗</a>{{else}}<span class="port text">{{.Label}}</span>{{end}} {{end}}</td>
-      <td class="actions-cell"><a class="btn btn-ghost btn-sm logs-link" href="/containers/{{.ID}}/logs">Logs</a></td>
+      <td class="ports">{{if not (ports .Container $host)}}<span class="faint">—</span>{{end}}{{range ports .Container $host}}{{if .URL}}<a class="port" href="{{.URL}}" target="_blank" rel="noopener" aria-label="Open port {{.Port}} in a new tab">{{.Port}} ↗</a>{{else}}<span class="port text">{{.Label}}</span>{{end}} {{end}}</td>
+      <td class="actions-cell"><a class="btn btn-ghost btn-sm logs-link" href="/containers/{{.ID}}/logs" aria-label="Logs for {{.Name}}">Logs</a></td>
     </tr>
   {{end}}
   </tbody>
@@ -172,17 +204,18 @@
         {{if not .Changes}}<span class="pill">nothing to change</span>{{end}}
       </span>
     </div>
-    {{if $.Stale}}<div class="callout callout-warn stale" role="alert">The selection changed after this Sync. Sync again before applying.</div>{{end}}
-    {{with .Blocked}}<div class="callout callout-bad error blocked" role="alert">This plan can't be applied: {{.}}.</div>{{end}}
+    {{if $.Stale}}<div class="callout callout-warn stale" role="status">The selection changed after this Sync. Sync again before applying.</div>{{end}}
+    {{with .Blocked}}<div class="callout callout-bad error blocked" role="status">This plan can't be applied: {{.}}.</div>{{end}}
+    <div class="plan-body">
     {{if .Commits}}
-    <ol class="commits">
+    <ol class="commits" aria-label="Commits in this Sync">
       {{range .Commits}}<li><code title="{{.Hash}}">{{short .Hash}}</code> <span>{{.Subject}}</span></li>{{end}}
     </ol>
     {{end}}
     {{if .Entries}}
     <div class="table-wrap">
     <table class="plan-entries grid">
-      <thead><tr><th>Stack</th><th>Action</th><th>Why</th></tr></thead>
+      <thead><tr><th scope="col">Stack</th><th scope="col">Action</th><th scope="col">Why</th></tr></thead>
       <tbody>
       {{range .Entries}}
         <tr class="plan-entry" data-stack="{{.Stack}}" data-outcome="{{.Action}}">
@@ -197,6 +230,7 @@
     {{else}}
     <p class="empty">The Deployment Repo has no Stacks.</p>
     {{end}}
+    </div>
     {{if $.CanApply}}<div class="card-foot">
       <span class="muted">Apply runs exactly this plan, at <code>{{short .To}}</code>.</span>
       <form method="post" action="/apply"><button class="btn btn-primary apply-cta">Apply this plan</button></form>
@@ -220,7 +254,7 @@
       <p>{{len .}} Stack(s) failed:</p>
       <ul>{{range .}}<li><b>{{.Stack}}</b> ({{.Action}}): <pre>{{.Err}}</pre></li>{{end}}</ul>
     </div>
-    {{else}}<div class="callout callout-ok ok apply-result">Apply finished successfully.</div>{{end}}{{end}}
+    {{else}}<div class="callout callout-ok ok apply-result" role="status">Apply finished successfully.</div>{{end}}{{end}}
   {{end}}
   <pre class="terminal apply-output"{{if .Running}} data-stream="/apply/stream"{{end}}>{{range .Output.Lines}}<span class="{{line .}}">{{.}}</span>
 {{end}}</pre>
@@ -239,3 +273,11 @@
 {{define "back"}}<div class="actions"><a class="btn btn-secondary back-btn" href="/">
   <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
   Back to the dashboard</a></div>{{end}}
+
+{{define "switch"}}<form class="select" method="post" action="/stacks/{{.Stack.Name}}/selection">
+  <label class="switch" title="Run {{.Stack.Name}} on this host">
+    <input type="checkbox" name="selected" value="true"{{if .Selected}} checked{{end}} aria-label="Run {{.Stack.Name}} on this host" data-stack="{{.Stack.Name}}">
+    <span class="switch-track" aria-hidden="true"></span>
+  </label>
+  <noscript><button class="btn btn-sm">Save</button></noscript>
+</form>{{end}}

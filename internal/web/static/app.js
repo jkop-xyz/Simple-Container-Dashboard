@@ -8,24 +8,37 @@
 document.addEventListener("change", async (e) => {
   const box = e.target.closest(".select input[type=checkbox]");
   if (!box) return;
-  box.disabled = true;
+  box.setAttribute("aria-busy", "true");
   try {
     await fetch(box.form.action, { method: "POST", body: new URLSearchParams(new FormData(box.form)) });
   } finally {
-    sessionStorage.setItem("scd-scroll", String(window.scrollY));
+    try {
+      sessionStorage.setItem("scd-scroll", String(window.scrollY));
+      sessionStorage.setItem("scd-focus", box.dataset.stack || "");
+    } catch (_) { /* storage unavailable */ }
     location.reload();
   }
 });
+// After that reload: back to the same scroll position, focus on the same switch.
 try {
   const y = sessionStorage.getItem("scd-scroll");
-  if (y !== null) { sessionStorage.removeItem("scd-scroll"); window.scrollTo(0, Number(y)); }
+  const stack = sessionStorage.getItem("scd-focus");
+  sessionStorage.removeItem("scd-scroll");
+  sessionStorage.removeItem("scd-focus");
+  if (y !== null) window.scrollTo(0, Number(y));
+  if (stack) {
+    const box = document.querySelector(`.select input[data-stack="${CSS.escape(stack)}"]`);
+    if (box) box.focus({ preventScroll: true });
+  }
 } catch (_) { /* storage unavailable: nothing to restore */ }
 
 // Sync and Apply can take a moment: show that the click registered.
 document.addEventListener("submit", (e) => {
   const btn = e.target.querySelector("button.sync-button, button.apply-button, button.apply-cta");
   if (!btn) return;
-  btn.disabled = true;
+  if (btn.dataset.busy) { e.preventDefault(); return; } // already submitted once
+  btn.dataset.busy = "1";
+  btn.setAttribute("aria-disabled", "true");
   btn.classList.add("is-busy");
   const label = btn.matches(".sync-button") ? "Syncing…" : "Applying…";
   btn.innerHTML = `<span class="spinner" aria-hidden="true"></span>${label}`;
@@ -59,7 +72,10 @@ async function refreshStatus() {
     for (const c of containers) {
       const row = document.querySelector(`tr.container[data-id="${CSS.escape(c.id)}"]`);
       if (!row) continue;
-      row.className = `container state-${c.state}`;
+      row.className = `container state-${c.state}${c.health === "unhealthy" ? " is-unhealthy" : ""}`;
+      row.dataset.health = c.health;
+      row.dataset.restarts = c.restarts;
+      row.dataset.status = c.status;
       row.querySelector(".state").textContent = c.state;
       const health = row.querySelector(".health");
       health.textContent = c.health;
@@ -68,12 +84,40 @@ async function refreshStatus() {
       row.querySelector(".restarts-badge").classList.toggle("is-zero", !c.restarts);
       row.querySelector(".cpu").textContent = c.cpu;
       const pct = parseFloat(c.cpu);
-      row.querySelector(".bar-fill").style.width = `${Number.isFinite(pct) ? Math.min(pct, 100) : 0}%`;
+      const fill = row.querySelector(".bar-fill");
+      fill.style.width = `${Number.isFinite(pct) ? Math.min(pct, 100) : 0}%`;
+      fill.className = `bar-fill${pct >= 85 ? " bar-bad" : pct >= 50 ? " bar-warn" : ""}`;
       row.querySelector(".mem").textContent = c.memory;
       row.querySelector(".status").textContent = c.status;
     }
+    refreshSummaries(containers);
   } catch (_) {
     // Network hiccup: try again next tick.
+  }
+}
+
+// Keep the overview tiles and each Stack's pill in step with the refreshed rows.
+function needsAttention(c) {
+  return c.health === "unhealthy" || c.state === "restarting" || c.state === "dead" ||
+    (c.state === "exited" && !c.status.startsWith("Exited (0)"));
+}
+
+function refreshSummaries(containers) {
+  const running = containers.filter((c) => c.state === "running").length;
+  const runTile = document.querySelector('[data-tile="running"]');
+  if (runTile) runTile.innerHTML = `${running}<small>/ ${containers.length}</small>`;
+  const attTile = document.querySelector('[data-tile="attention"]');
+  if (attTile) attTile.textContent = containers.filter(needsAttention).length;
+
+  for (const card of document.querySelectorAll("section.stack.card")) {
+    const pill = card.querySelector(".stack-pill");
+    if (!pill) continue;
+    const rows = [...card.querySelectorAll("tr.container")];
+    const up = rows.filter((r) => r.classList.contains("state-running")).length;
+    const sick = rows.filter((r) => r.classList.contains("is-unhealthy")).length;
+    const restarted = rows.some((r) => Number(r.dataset.restarts) > 0);
+    pill.textContent = `${sick ? `${sick} unhealthy · ` : ""}${up}/${rows.length} running`;
+    pill.className = `badge stack-pill ${sick ? "badge-bad" : up < rows.length || restarted ? "badge-warn" : "badge-ok"}`;
   }
 }
 
@@ -104,7 +148,8 @@ if (logView) {
     const atBottom = logView.scrollHeight - logView.scrollTop - logView.clientHeight < 40;
     logView.append(document.createTextNode(lines.join("\n") + "\n"));
     count += lines.length;
-    if (count > MAX_LINES) {
+    // Trim in batches, so a busy log doesn't rewrite the whole view on every line.
+    if (count > MAX_LINES + 2000) {
       const text = logView.textContent.split("\n");
       logView.textContent = text.slice(text.length - MAX_LINES - 1).join("\n");
       count = MAX_LINES;

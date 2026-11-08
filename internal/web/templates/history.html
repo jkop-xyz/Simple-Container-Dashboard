@@ -16,14 +16,14 @@
   </div>
 </header>
 <main class="page">
-  <h2 class="section-title">Apply history <span class="muted">· last 20</span></h2>
+  <h1 class="section-title page-title">Apply history <span class="muted">· last 20</span></h1>
   <ol class="timeline">
   {{range .History}}
   <li>
   <section class="history-entry card{{if not .OK}} failed{{end}}">
     <div class="card-head">
       <span class="tl-dot {{if .OK}}tl-ok{{else}}tl-bad{{end}}" aria-hidden="true"></span>
-      <h2>{{when .Finished}}</h2>
+      <h2 class="entry-title">{{when .Finished}}</h2>
       <span class="range"><code title="{{.From}}">{{short .From}}</code><span class="arrow">→</span><code title="{{.To}}">{{short .To}}</code></span>
       <span class="card-head-end">{{if .OK}}<span class="pill pill-ok"><span class="ok">✓</span> succeeded</span>{{else}}<span class="pill pill-bad"><span class="bad">✗</span> {{if .Error}}stopped{{else}}{{.Failures}} failed{{end}}</span>{{end}}</span>
     </div>
@@ -31,7 +31,7 @@
     {{if .Results}}
     <div class="table-wrap">
     <table class="grid">
-      <thead><tr><th>Stack</th><th>Action</th><th>Outcome</th></tr></thead>
+      <thead><tr><th scope="col">Stack</th><th scope="col">Action</th><th scope="col">Outcome</th></tr></thead>
       <tbody>
       {{range .Results}}
         <tr class="history-result plan-entry" data-stack="{{.Stack}}" data-outcome="{{.Action}}">

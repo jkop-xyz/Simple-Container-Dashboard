@@ -82,7 +82,7 @@ func TestQuadletStacksGroupContainersAndShowUnits(t *testing.T) {
 	assertContains(t, sections["jellyfin"], "systemd-jellyfin", `data-unit="jellyfin.service"`, `data-unit="media-volume.service"`,
 		"unit-active", "active (running)", `href="/units/jellyfin.service/logs"`)
 	// traefik's unit failed before it ever created a container: the unit is still visible.
-	assertContains(t, sections["traefik"], `data-unit="traefik.service"`, "unit-failed", ">failed<", "No containers.")
+	assertContains(t, sections["traefik"], `data-unit="traefik.service"`, "unit-failed", ">failed<", "No containers yet.")
 	assertContains(t, sections[""], "manual")
 	assertContains(t, body, "podman-auto-update.timer", `class="timer-active">active<`)
 }
@@ -95,8 +95,19 @@ func TestMissingUnitsShowAsNotInstalled(t *testing.T) {
 	e.rec.On("systemctl --user is-active -- podman-auto-update.timer", runnertest.Response{ExitCode: 3, Output: "inactive\n"})
 
 	body := mustGet(e.harness)
-	assertContains(t, splitSections(body)["app"], "not installed", "unit-inactive")
+	// Not selected, not deployed, unit not installed: it's listed under "Not on this host".
+	assertContains(t, body, "Not on this host")
+	assertContains(t, splitSections(body)["app"], "not selected · no containers")
 	assertContains(t, body, `podman-auto-update.timer: <b class="timer-inactive">inactive<`)
+}
+
+func TestSelectedQuadletStackShowsUninstalledUnits(t *testing.T) {
+	e := newPodmanEnv(t, map[string]string{"app/app.container": "[Container]\n"})
+	e.setSelected("app", true)
+	e.rec.On("systemctl --user show", runnertest.Response{Output: showOutput(
+		[4]string{"app.service", "not-found", "inactive", "dead"},
+	)})
+	assertContains(t, splitSections(mustGet(e.harness))["app"], "not installed", "unit-inactive", "deploys at next Apply")
 }
 
 func TestUnitLogStreamsTheJournal(t *testing.T) {

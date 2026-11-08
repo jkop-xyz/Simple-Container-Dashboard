@@ -51,6 +51,18 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	},
 	"ports": view.Ports,
 	// cpuBar is the CPU % clamped to 0–100, for the usage bar.
+	// load classifies CPU % for the bar colour.
+	"load": func(c view.Container) string {
+		switch {
+		case !c.HasCPU || c.State != "running":
+			return ""
+		case c.CPUPercent >= 85:
+			return "bar-bad"
+		case c.CPUPercent >= 50:
+			return "bar-warn"
+		}
+		return ""
+	},
 	"cpuBar": func(c view.Container) float64 {
 		if c.State != "running" || !c.HasCPU {
 			return 0
@@ -217,6 +229,9 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusInternalServerError
 	}
 	data.Dashboard = view.Build(cs, ss, st.IsSelected)
+	for i := range data.Groups {
+		_, data.Groups[i].Deployed = st.Deployed[data.Groups[i].Stack.Name]
+	}
 	if s.deps.Units != nil {
 		s.addUnits(ctx, &data.Dashboard)
 		data.AutoUpdate = s.deps.Units.IsActive(ctx, AutoUpdateTimer)

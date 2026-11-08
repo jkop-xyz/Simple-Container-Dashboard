@@ -67,7 +67,7 @@ func TestContainersAreGroupedByStack(t *testing.T) {
 	sections := splitSections(body)
 	want := map[string][]string{
 		"App1":     {"app1-web-1"},
-		"empty":    {"No containers."},
+		"empty":    {"not selected · no containers"},
 		"jellyfin": {"jellyfin-1"},
 		"traefik":  {"traefik-1"},
 		"":         {"Other", "unmanaged", "handmade", "stray-1"},

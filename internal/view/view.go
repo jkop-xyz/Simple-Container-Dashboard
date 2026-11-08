@@ -2,6 +2,7 @@
 package view
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -33,6 +34,8 @@ type Group struct {
 	Containers []Container
 	// Units are a Quadlet Stack's systemd units and their states.
 	Units []systemd.UnitState
+	// Deployed reports whether Apply has deployed the Stack (so it is managed here).
+	Deployed bool
 }
 
 // Dashboard is the grouped view of the host.
@@ -135,4 +138,102 @@ func countRunning(cs []Container) int {
 		}
 	}
 	return n
+}
+
+// Unhealthy counts the group's containers failing their healthcheck.
+func (g Group) Unhealthy() int {
+	n := 0
+	for _, c := range g.Containers {
+		if c.Health == "unhealthy" {
+			n++
+		}
+	}
+	return n
+}
+
+// Restarted reports whether any of the group's containers has restarted.
+func (g Group) Restarted() bool {
+	for _, c := range g.Containers {
+		if c.RestartCount > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// Active reports whether the Stack belongs in the main grid: it is selected or deployed
+// here, or it still has containers or installed units (e.g. it awaits teardown).
+func (g Group) Active() bool {
+	if g.Selected || g.Deployed || len(g.Containers) > 0 {
+		return true
+	}
+	for _, u := range g.Units { // installed Quadlet units, e.g. one that failed before starting
+		if u.LoadState == "loaded" {
+			return true
+		}
+	}
+	return false
+}
+
+// Problem is one container that needs a look, and why.
+type Problem struct {
+	Container
+	Stack  string
+	Reason string
+	// Severity is "bad" or "warn".
+	Severity string
+}
+
+// Attention lists containers that need a look: unhealthy, restarting, crashed (exited
+// non-zero) or restarted at least once. Worst first.
+func (d Dashboard) Attention() []Problem {
+	var out []Problem
+	check := func(stack string, cs []Container) {
+		for _, c := range cs {
+			p := Problem{Container: c, Stack: stack}
+			switch {
+			case c.Health == "unhealthy":
+				p.Reason, p.Severity = "unhealthy", "bad"
+			case c.State == "restarting":
+				p.Reason, p.Severity = "restarting", "bad"
+			case c.State == "exited" && !strings.HasPrefix(c.Status, "Exited (0)"):
+				p.Reason, p.Severity = strings.ToLower(strings.SplitN(c.Status, ")", 2)[0]+")"), "bad"
+			case c.State == "dead":
+				p.Reason, p.Severity = "dead", "bad"
+			default:
+				continue
+			}
+			if c.RestartCount > 0 {
+				p.Reason += fmt.Sprintf(" · restarted %d×", c.RestartCount)
+			}
+			out = append(out, p)
+		}
+	}
+	for _, g := range d.Groups {
+		check(g.Stack.Name, g.Containers)
+	}
+	check("", d.Other)
+	return out
+}
+
+// Inactive lists Stacks that neither run nor are selected here.
+func (d Dashboard) Inactive() []Group {
+	var out []Group
+	for _, g := range d.Groups {
+		if !g.Active() {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// ActiveGroups lists the Stacks shown as full cards.
+func (d Dashboard) ActiveGroups() []Group {
+	var out []Group
+	for _, g := range d.Groups {
+		if g.Active() {
+			out = append(out, g)
+		}
+	}
+	return out
 }

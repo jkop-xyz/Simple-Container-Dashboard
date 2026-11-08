@@ -18,12 +18,12 @@
 <main class="page">
   <div class="card log-card">
     <div class="card-head">
-      <span class="state-{{.C.State}} cname"><span class="dot" aria-hidden="true"></span><h2 class="container-name">{{.C.Name}}</h2></span>
+      <span class="state-{{.C.State}} cname"><span class="dot" aria-hidden="true"></span><h1 class="container-name">{{.C.Name}}</h1></span>
       <span class="badges"><span class="state-{{.C.State}}"><span class="state">{{.C.State}}</span></span></span>
       <span class="muted">last {{.Tail}} lines{{if eq .C.State "running"}}, then live{{end}}</span>
       <span class="card-head-end">
         <span class="live" hidden><span class="live-dot" aria-hidden="true"></span>Live</span>
-        <span class="log-status muted"></span>
+        <span class="log-status muted" role="status"></span>
         <button type="button" class="btn btn-secondary btn-sm log-pause" aria-pressed="false">Pause</button>
       </span>
     </div>
