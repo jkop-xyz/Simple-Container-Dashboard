@@ -13,6 +13,7 @@
   {{if .RepoName}}<span class="meta">repo: <b class="repo">{{.RepoName}}</b>{{if .Commit}} @ <code class="commit" title="{{.Commit}}">{{short .Commit}}</code>{{end}}</span>{{end}}
   {{if .Sync}}<span class="actions">
     <form method="post" action="/sync"><button class="sync-button">Sync</button></form>
+    <form method="post" action="/apply"><button class="apply-button"{{if not .Sync.CanApply}} disabled{{end}}>Apply</button></form>
   </span>{{end}}
 </header>
 <main>
@@ -66,8 +67,10 @@
 {{end}}
 
 {{define "sync"}}
+{{with .Apply}}{{template "apply" .}}{{end}}
 <section id="sync" class="sync">
   {{if .Err}}<p class="error sync-error" role="alert">Sync failed: {{.Err}}</p>{{end}}
+  {{if .ApplyErr}}<p class="error apply-error" role="alert">Can't apply: {{.ApplyErr}}</p>{{end}}
   {{with .Plan}}
   <div class="plan">
     <h2>Sync Plan</h2>
@@ -98,5 +101,23 @@
     {{end}}
   </div>
   {{end}}
+</section>
+{{end}}
+
+{{define "apply"}}
+<section id="apply" class="apply{{if .Running}} running{{end}}">
+  <h2>{{if .Running}}Apply running…{{else}}Apply{{end}}
+    <span class="meta">to <code title="{{.Plan.To}}">{{short .Plan.To}}</code></span></h2>
+  {{if not .Running}}
+    {{with .Err}}<p class="error apply-result" role="alert">Apply stopped before deploying anything: {{.}}</p>
+    {{else}}{{with .Failed}}
+    <div class="error apply-result" role="alert">
+      <p>{{len .}} Stack(s) failed:</p>
+      <ul>{{range .}}<li><b>{{.Stack}}</b> ({{.Action}}): <pre>{{.Err}}</pre></li>{{end}}</ul>
+    </div>
+    {{else}}<p class="ok apply-result">Apply finished successfully.</p>{{end}}{{end}}
+  {{end}}
+  <pre class="apply-output"{{if .Running}} data-stream="/apply/stream"{{end}}>{{range .Output.Lines}}{{.}}
+{{end}}</pre>
 </section>
 {{end}}

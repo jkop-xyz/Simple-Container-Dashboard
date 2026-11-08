@@ -3,6 +3,7 @@ package runnertest
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 
@@ -29,6 +30,9 @@ type rule struct {
 // use real git while still recording), and otherwise succeed with empty output.
 type Fake struct {
 	Delegate runner.Runner
+	// DelegateOnly, if set, restricts Delegate to these command names (e.g. "git"), so a
+	// test can never run a real docker/systemctl on the developer's machine by accident.
+	DelegateOnly []string
 
 	mu    sync.Mutex
 	rules []rule
@@ -60,7 +64,7 @@ func (f *Fake) Run(ctx context.Context, cmd runner.Cmd) (runner.Result, error) {
 	if resp.Wait != nil {
 		<-resp.Wait
 	}
-	if !matched && f.Delegate != nil {
+	if !matched && f.Delegate != nil && (len(f.DelegateOnly) == 0 || slices.Contains(f.DelegateOnly, cmd.Name)) {
 		return f.Delegate.Run(ctx, cmd)
 	}
 

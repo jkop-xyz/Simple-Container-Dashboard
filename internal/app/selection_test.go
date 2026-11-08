@@ -9,7 +9,6 @@ import (
 
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/app"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/gittest"
-	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner/runnertest"
 )
 
@@ -22,7 +21,7 @@ func selectionHarness(t *testing.T, dataDir string) (*harness, *runnertest.Fake)
 		"jellyfin/compose.yaml": "services: {}\n",
 		"traefik/compose.yaml":  "services: {}\n",
 	})
-	rec := &runnertest.Fake{Delegate: runner.Exec{}}
+	rec := gitOnly()
 	clone := filepath.Join(t.TempDir(), "repo")
 	h := startDashboard(t, withRepo(remote.URL, clone), func(o *app.Options) {
 		o.Runner = rec
