@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -95,21 +96,30 @@ func (c *Client) ListContainers(ctx context.Context) ([]Container, error) {
 	return out, nil
 }
 
-func (c *Client) getJSON(ctx context.Context, path string, v any) error {
+func (c *Client) get(ctx context.Context, path string) (*http.Response, error) {
 	// The host part is ignored: the transport always dials the Unix socket.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://runtime"+path, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("runtime API at %s: %w", c.socket, err)
+		return nil, fmt.Errorf("runtime API at %s: %w", c.socket, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("runtime API %s: %s: %s", path, resp.Status, strings.TrimSpace(string(body)))
+	}
+	return resp, nil
+}
+
+func (c *Client) getJSON(ctx context.Context, path string, v any) error {
+	resp, err := c.get(ctx, path)
+	if err != nil {
+		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("runtime API %s: %s: %s", path, resp.Status, strings.TrimSpace(string(body)))
-	}
 	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
 		return fmt.Errorf("runtime API %s: decoding response: %w", path, err)
 	}
@@ -121,6 +131,8 @@ type Details struct {
 	RestartCount int
 	// Health is "healthy", "unhealthy", "starting", or "" when there's no healthcheck.
 	Health string
+	// Tty is set when the container has a terminal; its logs are then not multiplexed.
+	Tty bool
 }
 
 // Inspect returns a container's restart count and health.
@@ -132,11 +144,14 @@ func (c *Client) Inspect(ctx context.Context, id string) (Details, error) {
 				Status string `json:"Status"`
 			} `json:"Health"`
 		} `json:"State"`
+		Config struct {
+			Tty bool `json:"Tty"`
+		} `json:"Config"`
 	}
-	if err := c.getJSON(ctx, "/containers/"+id+"/json", &wire); err != nil {
+	if err := c.getJSON(ctx, "/containers/"+url.PathEscape(id)+"/json", &wire); err != nil {
 		return Details{}, err
 	}
-	d := Details{RestartCount: wire.RestartCount}
+	d := Details{RestartCount: wire.RestartCount, Tty: wire.Config.Tty}
 	if wire.State.Health != nil {
 		d.Health = wire.State.Health.Status
 	}
@@ -173,7 +188,7 @@ func (c *Client) Stats(ctx context.Context, id string) (Sample, error) {
 			Stats map[string]uint64 `json:"stats"`
 		} `json:"memory_stats"`
 	}
-	if err := c.getJSON(ctx, "/containers/"+id+"/stats?stream=false&one-shot=true", &wire); err != nil {
+	if err := c.getJSON(ctx, "/containers/"+url.PathEscape(id)+"/stats?stream=false&one-shot=true", &wire); err != nil {
 		return Sample{}, err
 	}
 	s := Sample{

@@ -92,3 +92,5 @@ a { color: inherit; }
 a.port { font-weight: 600; text-decoration: none; }
 a.port:hover { text-decoration: underline; }
 .port.text { color: var(--muted); font-size: 12px; }
+.logs-link { color: var(--muted); font-size: 12px; }
+.log { background: var(--line); padding: 10px; border-radius: 4px; font-size: 12px; line-height: 1.4; white-space: pre-wrap; word-break: break-all; min-height: 60vh; max-height: 80vh; overflow: auto; margin: 0; }

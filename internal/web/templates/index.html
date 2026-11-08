@@ -57,7 +57,7 @@
 
 {{define "containers"}}
 <table class="containers">
-  <thead><tr><th>Container</th><th>State</th><th>Health</th><th>Restarts</th><th>CPU</th><th>RAM</th><th>Ports</th><th>Status</th><th>Image</th></tr></thead>
+  <thead><tr><th>Container</th><th>State</th><th>Health</th><th>Restarts</th><th>CPU</th><th>RAM</th><th>Ports</th><th>Status</th><th>Image</th><th></th></tr></thead>
   <tbody>
   {{$host := .Host}}
   {{range .Rows}}
@@ -71,6 +71,7 @@
       <td class="ports">{{range ports .Container $host}}{{if .URL}}<a class="port" href="{{.URL}}" target="_blank" rel="noopener">{{.Port}} ↗</a>{{else}}<span class="port text">{{.Label}}</span>{{end}} {{end}}</td>
       <td class="status">{{.Status}}</td>
       <td class="image">{{.Image}}</td>
+      <td><a class="logs-link" href="/containers/{{.ID}}/logs">logs</a></td>
     </tr>
   {{end}}
   </tbody>

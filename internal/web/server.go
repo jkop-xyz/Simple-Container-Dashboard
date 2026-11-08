@@ -70,7 +70,11 @@ type Runtime interface {
 	ListContainers(ctx context.Context) ([]dockerapi.Container, error)
 	Inspect(ctx context.Context, id string) (dockerapi.Details, error)
 	Stats(ctx context.Context, id string) (dockerapi.Sample, error)
+	Logs(ctx context.Context, id string, tail int, follow, tty bool, fn func(line string) error) error
 }
+
+// LogTail is how many lines a logs view starts with.
+const LogTail = 500
 
 // Repo is what the web server needs from the Deployment Repo clone.
 type Repo interface {
@@ -115,6 +119,8 @@ func New(deps Deps) *Server {
 	s.mux.HandleFunc("GET /apply/stream", s.applyStream)
 	s.mux.HandleFunc("GET /history", s.history)
 	s.mux.HandleFunc("GET /api/status", s.status)
+	s.mux.HandleFunc("GET /containers/{id}/logs", s.logsPage)
+	s.mux.HandleFunc("GET /containers/{id}/logs/stream", s.logsStream)
 	return s
 }
 
@@ -415,4 +421,69 @@ func browserHost(r *http.Request) string {
 		return host
 	}
 	return strings.Trim(r.Host, "[]")
+}
+
+// findContainer looks a container up by ID.
+func (s *Server) findContainer(ctx context.Context, id string) (dockerapi.Container, bool, error) {
+	cs, err := s.deps.Runtime.ListContainers(ctx)
+	if err != nil {
+		return dockerapi.Container{}, false, err
+	}
+	for _, c := range cs {
+		if c.ID == id {
+			return c, true, nil
+		}
+	}
+	return dockerapi.Container{}, false, nil
+}
+
+// logsPage is the full-page log view; app.js fills it from logsStream.
+func (s *Server) logsPage(w http.ResponseWriter, r *http.Request) {
+	c, ok, err := s.findContainer(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "listing containers: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	if !ok {
+		http.Error(w, "no such container", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	data := struct {
+		Hostname string
+		C        dockerapi.Container
+		Tail     int
+	}{s.deps.Hostname, c, LogTail}
+	if err := pages.ExecuteTemplate(w, "logs.html", data); err != nil {
+		slog.Error("rendering logs page", "err", err)
+	}
+}
+
+// logsStream sends the container's last LogTail lines as Server-Sent Events, then
+// follows new output while the container runs, and ends with a "done" event.
+func (s *Server) logsStream(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	c, ok, err := s.findContainer(ctx, r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "listing containers: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	if !ok {
+		http.Error(w, "no such container", http.StatusNotFound)
+		return
+	}
+	details, err := s.deps.Runtime.Inspect(ctx, c.ID)
+	if err != nil {
+		http.Error(w, "inspecting container: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	sse(w, r, func(send func(event, data string) error) error {
+		err := s.deps.Runtime.Logs(ctx, c.ID, LogTail, c.State == "running", details.Tty, func(line string) error {
+			return send("", line)
+		})
+		if err != nil && ctx.Err() == nil {
+			send("error", err.Error())
+		}
+		return send("done", "")
+	})
 }
