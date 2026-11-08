@@ -49,6 +49,8 @@ type Options struct {
 	Version string
 	// LatestRelease looks up the newest scd release. Defaults to GitHub; tests pass a fake.
 	LatestRelease release.Latest
+	// Demo shows the demo-mode banner.
+	Demo bool
 }
 
 // App is a wired-up dashboard.
@@ -103,6 +105,7 @@ func New(opts Options) (*App, error) {
 		Runtime:     dockerapi.New(socket),
 		RuntimeKind: rt,
 		Hostname:    opts.Hostname,
+		Demo:        opts.Demo,
 		State:       state.Open(filepath.Join(opts.DataDir, "state.json")),
 	}
 	if rc := opts.Config.Repo; rc.URL != "" {

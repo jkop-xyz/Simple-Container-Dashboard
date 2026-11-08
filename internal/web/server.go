@@ -116,6 +116,8 @@ type Deps struct {
 	Missing func() []string
 	// NewerRelease returns a newer scd release tag, or "".
 	NewerRelease func() string
+	// Demo shows the demo-mode banner and its "simulate a push" button.
+	Demo bool
 }
 
 // Server is the dashboard HTTP handler.
@@ -164,6 +166,7 @@ type indexData struct {
 	AutoUpdate string
 	Missing    []string
 	NewRelease string
+	Demo       bool
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
@@ -171,7 +174,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	data := indexData{Hostname: s.deps.Hostname, RepoName: s.deps.RepoName, BrowserHost: browserHost(r),
-		Missing: s.missing(), NewRelease: s.newRelease()}
+		Missing: s.missing(), NewRelease: s.newRelease(), Demo: s.deps.Demo}
 	status := http.StatusOK
 
 	cs, err := s.containers(ctx)

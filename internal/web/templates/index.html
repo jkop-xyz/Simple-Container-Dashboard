@@ -21,6 +21,10 @@
   </span>{{end}}
 </header>
 <main>
+  {{if .Demo}}<div class="demo-banner" role="note">
+    <b>Demo mode.</b> The containers, the Deployment Repo and every deploy are simulated in memory; nothing on this machine is touched.
+    <form method="post" action="/demo/push"><button>Simulate a push to the Deployment Repo</button></form>
+  </div>{{end}}
   {{with .Missing}}<p class="error missing-tools" role="alert">This host is missing tools scd needs: {{range $i, $t := .}}{{if $i}}, {{end}}<code>{{$t}}</code>{{end}}. Run <code>scd setup</code> or install them.</p>{{end}}
   {{if .Error}}<p class="error" role="alert">Can't reach the container runtime: {{.Error}}</p>{{end}}
   {{if .RepoError}}<p class="error" role="alert">Deployment Repo unavailable: {{.RepoError}}</p>{{end}}

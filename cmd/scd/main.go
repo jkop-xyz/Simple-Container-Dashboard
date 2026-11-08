@@ -18,6 +18,7 @@ import (
 
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/app"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/config"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/demo"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/setup"
 )
@@ -36,17 +37,21 @@ func run(args []string) error {
 	cmd := "serve"
 	if len(args) > 0 && args[0] != "" && args[0][0] != '-' {
 		cmd, args = args[0], args[1:]
+	} else if len(args) > 0 && (args[0] == "--demo" || args[0] == "-demo") {
+		cmd, args = "demo", args[1:]
 	}
 	switch cmd {
 	case "serve":
 		return serve(args)
 	case "setup":
 		return runSetup()
+	case "demo":
+		return runDemo(args)
 	case "version":
 		fmt.Println("scd", version)
 		return nil
 	default:
-		return fmt.Errorf("unknown command %q (commands: serve, setup, version)", cmd)
+		return fmt.Errorf("unknown command %q (commands: serve, setup, demo, version)", cmd)
 	}
 }
 
@@ -138,4 +143,37 @@ func username() string {
 		return u.Username
 	}
 	return os.Getenv("USER")
+}
+
+// runDemo serves the dashboard against simulated containers and a simulated Deployment
+// Repo, for trying the web interface without Docker, Podman, git or a repo.
+func runDemo(args []string) error {
+	fs := flag.NewFlagSet("demo", flag.ContinueOnError)
+	listen := fs.String("listen", demo.DefaultListen, "address to listen on")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	d, err := demo.New(version)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go d.Animate(ctx)
+
+	srv := &http.Server{Addr: *listen, Handler: d.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.ListenAndServe() }()
+	fmt.Printf("scd demo: open http://%s — everything is simulated; press Ctrl+C to stop.\n", *listen)
+
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return srv.Shutdown(shutdownCtx)
 }
