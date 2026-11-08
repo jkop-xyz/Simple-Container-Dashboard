@@ -106,8 +106,38 @@ func Discover(files []string, runtime config.Runtime) []Stack {
 		out = append(out, *s)
 	}
 	checkNames(out)
+	checkUnitNames(out)
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// checkUnitNames invalidates Quadlet Stacks whose unit files would generate the same
+// systemd service as another unit anywhere in the repo: systemd has one namespace.
+func checkUnitNames(ss []Stack) {
+	owners := map[string][]string{} // service → "stack/file" that generate it
+	for _, s := range ss {
+		if s.Kind != Quadlet {
+			continue
+		}
+		for _, f := range s.QuadletUnits() {
+			svc := ServiceName(f)
+			owners[svc] = append(owners[svc], s.Path(f))
+		}
+	}
+	for i := range ss {
+		s := &ss[i]
+		if s.Kind != Quadlet || s.Problem != "" {
+			continue
+		}
+		for _, f := range s.QuadletUnits() {
+			if files := owners[ServiceName(f)]; len(files) > 1 {
+				sort.Strings(files)
+				s.Problem = fmt.Sprintf("has a unit name that isn't unique in the repo: %s all become %s",
+					strings.Join(files, ", "), ServiceName(f))
+				break
+			}
+		}
+	}
 }
 
 func classify(s *Stack, runtime config.Runtime) {
