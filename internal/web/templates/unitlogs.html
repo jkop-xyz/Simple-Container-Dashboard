@@ -7,14 +7,14 @@
 {{template "head"}}
 </head>
 <body class="logs-page">
-{{template "shell-start" (dict "Hostname" .Hostname "Page" "logs" "Parent" "Containers" "ParentHref" "/containers" "Crumb" (printf "%s log" .Unit))}}
+{{template "shell-start" (dict "Hostname" .Hostname "Index" .Index "Page" "logs" "Parent" "Containers" "ParentHref" "/containers" "Crumb" (printf "%s log" .Unit))}}
   <div class="card log-card">
     <div class="card-head">
       <h1 class="unit-name mono">{{.Unit}}</h1>
       <span class="card-head-end">
         <span class="live" hidden><span class="live-dot" aria-hidden="true"></span>Live</span>
         <span class="log-status muted" role="status"></span>
-        <button type="button" class="btn btn-secondary btn-sm log-pause" aria-pressed="false">Pause</button>
+        <button type="button" class="btn btn-text btn-sm log-pause" aria-pressed="false">Pause</button>
       </span>
     </div>
     <div class="log-toolbar">
@@ -24,7 +24,7 @@
       <label class="field"><span>Lines</span>
         <select class="log-lines">{{range .Tails}}<option value="{{.}}"{{if eq . $.Tail}} selected{{end}}>{{.}}</option>{{end}}</select></label>
       
-      <button type="button" class="btn btn-secondary btn-sm log-download">Download</button>
+      <button type="button" class="btn btn-text btn-sm log-download">Download</button>
     </div>
     <p class="log-hint muted">Last <span class="log-tail">{{.Tail}}</span> journal lines, then live.</p>
     <pre class="terminal log" tabindex="0" role="region" aria-label="Unit log output" data-stream="/units/{{.Unit}}/logs/stream" data-name="{{.Unit}}" aria-live="off"></pre>

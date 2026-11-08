@@ -94,7 +94,10 @@ async function refreshStatus() {
       const spark = row.querySelector(".spark-fill");
       if (spark) { spark.setAttribute("d", c.spark || ""); spark.setAttribute("class", `spark-fill${load}`); }
       const membar = row.querySelector(".membar-fill");
-      if (membar) membar.style.width = `${peakMem ? Math.min(100, (c.memoryBytes / peakMem) * 100) : 0}%`;
+      if (membar) {
+        const share = peakMem && c.memoryBytes ? c.memoryBytes / peakMem : 0;
+        membar.style.width = `${share ? Math.max(3, Math.min(100, Math.sqrt(share) * 100)) : 0}%`;
+      }
       row.querySelector(".mem").textContent = c.memory;
       row.querySelector(".status").textContent = c.status;
     }
@@ -136,7 +139,8 @@ function refreshSummaries(containers) {
     const sick = rows.filter((r) => r.classList.contains("is-unhealthy")).length;
     const looping = rows.filter((r) => r.classList.contains("is-crashloop")).length;
     const restarted = rows.some((r) => Number(r.dataset.restarts) > 0);
-    pill.textContent = `${looping ? `${looping} crash-looping · ` : ""}${sick ? `${sick} unhealthy · ` : ""}${up}/${rows.length} running`;
+    const problems = [looping && `${looping} crash-looping`, sick && `${sick} unhealthy`].filter(Boolean);
+    pill.textContent = problems.length ? problems.join(" · ") : `${up}/${rows.length} running${restarted ? " · restarted" : ""}`;
     pill.className = `badge stack-pill ${sick || looping ? "badge-bad" : up < rows.length || restarted ? "badge-warn" : "badge-ok"}`;
   }
 }
@@ -285,6 +289,8 @@ function setNav(open, { focusToggle = false } = {}) {
   else if (focusToggle) navToggle?.focus();
 }
 navToggle?.addEventListener("click", () => setNav(!document.body.classList.contains("nav-open")));
+// Growing past the drawer breakpoint while it is open must not leave the page inert.
+matchMedia("(max-width: 1100px)").addEventListener("change", (e) => { if (!e.matches) setNav(false); });
 scrim?.addEventListener("click", () => setNav(false, { focusToggle: true }));
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && document.body.classList.contains("nav-open")) setNav(false, { focusToggle: true });
@@ -300,6 +306,7 @@ if (search && table) {
   const count = document.querySelector(".container-count");
   const countText = count?.textContent;
   const total = document.querySelectorAll("tr.container").length;
+  let announceTimer;
   const apply = () => {
     const q = search.value.trim().toLowerCase();
     let shown = 0;
@@ -323,7 +330,10 @@ if (search && table) {
     }
     if (none) none.hidden = !q || shown > 0;
     if (count) count.textContent = q ? `${shown} shown of ${total}` : countText;
-    if (status) status.textContent = q ? (shown ? `${shown} container${shown === 1 ? "" : "s"} match “${search.value.trim()}”.` : "No containers match your search.") : "";
+    clearTimeout(announceTimer); // announce once typing pauses, not on every key
+    announceTimer = setTimeout(() => {
+      if (status) status.textContent = q ? (shown ? `${shown} container${shown === 1 ? "" : "s"} match “${search.value.trim()}”.` : "No containers match your search.") : "";
+    }, 500);
   };
   search.form?.addEventListener("submit", (e) => { e.preventDefault(); apply(); });
   search.addEventListener("input", apply);

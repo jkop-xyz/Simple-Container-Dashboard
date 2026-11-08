@@ -7,7 +7,7 @@
 {{template "head"}}
 </head>
 <body>
-{{template "shell-start" (dict "Hostname" .Hostname "Page" "history" "Parent" "Deployment" "ParentHref" "/deployment" "Crumb" "Apply history")}}
+{{template "shell-start" (dict "Hostname" .Hostname "Index" .Index "Page" "history" "Parent" "Deployment" "ParentHref" "/deployment" "Crumb" "Apply history")}}
   <h1 class="visually-hidden">Apply history (last 20)</h1>
   <ol class="timeline">
   {{range .History}}
@@ -18,9 +18,9 @@
       <span class="muted took">took {{took .Duration}}</span>
       {{template "range" .}}
       <span class="card-head-end">
-        {{if .ID}}<a class="btn btn-ghost btn-sm view-output" href="/history/{{.ID}}">View output</a>{{end}}
         {{if eq .HealthCheck "checking"}}<span class="badge badge-neutral health-check"><span class="spinner" aria-hidden="true"></span>checking health…</span>{{end}}
         {{template "outcome" .}}
+        {{if .ID}}<a class="btn btn-text btn-sm view-output" href="/history/{{.ID}}">View output</a>{{end}}
       </span>
     </div>
     {{with .Error}}<div class="callout callout-bad error">Stopped before deploying anything: {{.}}</div>{{end}}
@@ -30,7 +30,7 @@
     </ol>
     {{end}}
     {{if .Results}}
-    <div class="table-wrap">
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Stacks in this Apply">
     <table class="grid">
       <thead><tr><th scope="col">Stack</th><th scope="col">Action</th><th scope="col">Outcome</th><th scope="col">Afterwards</th></tr></thead>
       <tbody>

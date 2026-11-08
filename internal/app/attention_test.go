@@ -28,7 +28,7 @@ func TestProblemsAreListedUnderNeedsAttention(t *testing.T) {
 		}
 	}
 	assertContains(t, body, `href="/containers?filter=attention"`, `data-count="attention">2<`)
-	assertContains(t, splitSections(body)["ha"], "badge-bad", "1 unhealthy · 1/1 running")
+	assertContains(t, splitSections(body)["ha"], "badge-bad", ">1 unhealthy<")
 	if strings.Contains(splitSections(body)["web"], "stack-pill") {
 		t.Error("a healthy Stack's group row should stay quiet")
 	}

@@ -89,7 +89,7 @@ func TestRisingRestartCountIsFlaggedAsCrashLooping(t *testing.T) {
 	e.api.SetContainers(c)
 
 	body = mustGet(e.harness)
-	assertContains(t, body, `is-crashloop" data-id="h1"`, "1 crash-looping · 1/1 running", "crash-looping · restarted 4×")
+	assertContains(t, body, `is-crashloop" data-id="h1"`, ">1 crash-looping<", "crash-looping · restarted 4×")
 	_, raw := e.get("/api/status")
 	assertContains(t, raw, `"crashLooping":true`)
 }

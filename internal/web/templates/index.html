@@ -19,12 +19,12 @@
   {{if .Error}}<div class="callout callout-bad error" role="alert">{{template "i-error"}}<div>Can't reach the container runtime: {{.Error}}</div></div>{{end}}
   {{if .RepoError}}<div class="callout callout-bad error" role="status">{{template "i-error"}}<div>Deployment Repo unavailable: {{.RepoError}}</div></div>{{end}}
 
-  {{if ne .View "containers"}}{{with .Pending}}{{if not (and $.Sync $.Sync.Plan (not $.Sync.Stale))}}
+  {{with .Pending}}{{if not (and $.Sync $.Sync.Plan (not $.Sync.Stale))}}
   <div class="callout callout-info pending-bar" role="status">{{template "i-info"}}
     <div><b>{{len .}} pending change{{if ne (len .) 1}}s{{end}}:</b> {{range $i, $g := .}}{{if $i}}, {{end}}{{if $g.Selected}}deploy{{else}}tear down{{end}} <b>{{$g.Stack.Name}}</b>{{end}}. Sync to review the plan, then Apply.</div>
     <form method="post" action="/sync"><button class="btn btn-text btn-sm sync-button">Sync now</button></form>
   </div>
-  {{end}}{{end}}{{end}}
+  {{end}}{{end}}
 
   {{if or .Filter .Q}}<div class="filter-bar">
     <span>{{if .Filter}}Showing only <b>{{.FilterLabel}}</b>{{else}}Showing containers and Stacks matching <b>“{{.Q}}”</b>{{end}}.</span>
@@ -73,16 +73,16 @@
   {{if or $groups .Other}}
   <section class="card stack-summary" aria-labelledby="summary-title">
     <div class="card-head"><h2 id="summary-title">Stacks</h2>
-      <span class="card-head-end"><a class="btn btn-text btn-sm" href="/containers">All containers</a><a class="btn btn-text btn-sm" href="/deployment">Manage Stacks</a></span></div>
+      <a class="card-head-end btn btn-text btn-sm" href="/deployment">Manage Stacks</a></div>
     <ul class="summary-list">
       {{range $groups}}<li class="summary-row si-{{stackIcon .}}">
         {{template "status-icons"}}
         <a class="summary-name" href="/containers?q={{.Stack.Name}}">{{.Stack.Name}}</a>
         <span class="muted kind">{{.Stack.Kind}}</span>
-        <span class="summary-state {{if or .Unhealthy .CrashLooping}}bad{{else if lt .Running (len .Containers)}}warn-text{{else}}muted{{end}}">{{if .CrashLooping}}{{.CrashLooping}} crash-looping · {{end}}{{if .Unhealthy}}{{.Unhealthy}} unhealthy · {{end}}{{if .Containers}}{{.Running}}/{{len .Containers}} running{{else}}no containers yet{{end}}</span>
-        {{if and (not .Selected) .Deployed}}<span class="badge badge-bad">torn down at next Apply</span>{{else if and .Selected (not .Deployed)}}<span class="badge badge-ok">deploys at next Apply</span>{{end}}
+        <span class="summary-state {{if or .Unhealthy .CrashLooping}}bad{{else if lt .Running (len .Containers)}}warn-text{{else}}muted{{end}}">{{groupState .}}</span>
+        <span class="summary-badge">{{if and (not .Selected) .Deployed}}<span class="badge badge-bad">torn down at next Apply</span>{{else if and .Selected (not .Deployed)}}<span class="badge badge-ok">deploys at next Apply</span>{{end}}</span>
       </li>{{end}}
-      {{with .Other}}<li class="summary-row si-ok">{{template "status-icons"}}<a class="summary-name" href="/containers?filter=unmanaged">Other</a><span class="muted kind">unmanaged</span><span class="summary-state muted">{{len .}} container{{if ne (len .) 1}}s{{end}}</span></li>{{end}}
+      {{with .Other}}{{$bad := problems .}}<li class="summary-row si-{{if $bad}}err{{else}}ok{{end}}">{{template "status-icons"}}<a class="summary-name" href="/containers?filter=unmanaged">Other</a><span class="muted kind">unmanaged</span><span class="summary-state {{if $bad}}bad{{else}}muted{{end}}">{{if $bad}}{{$bad}} need{{if eq $bad 1}}s{{end}} attention · {{end}}{{len .}} container{{if ne (len .) 1}}s{{end}}</span><span class="summary-badge"></span></li>{{end}}
     </ul>
   </section>
   {{end}}
@@ -105,7 +105,7 @@
         <tr class="group-row"><th scope="rowgroup" colspan="7">
           <span class="group-name">{{.Stack.Name}}</span>
           <span class="muted kind">{{.Stack.Kind}}</span>
-          {{if .Containers}}{{if or .Unhealthy .CrashLooping (lt .Running (len .Containers)) .Restarted}}<span class="badge stack-pill {{if or .Unhealthy .CrashLooping}}badge-bad{{else}}badge-warn{{end}}">{{if .CrashLooping}}{{.CrashLooping}} crash-looping · {{end}}{{if .Unhealthy}}{{.Unhealthy}} unhealthy · {{end}}{{.Running}}/{{len .Containers}} running</span>{{end}}{{end}}
+          {{if .Containers}}{{if or .Unhealthy .CrashLooping (lt .Running (len .Containers)) .Restarted}}<span class="badge stack-pill {{if or .Unhealthy .CrashLooping}}badge-bad{{else}}badge-warn{{end}}">{{groupState .}}</span>{{end}}{{end}}
           {{if and (not .Selected) .Deployed}}<span class="badge badge-bad pending">torn down at next Apply</span>{{end}}
         </th></tr>
         {{range .Units}}
@@ -136,7 +136,7 @@
   {{if .Groups}}
   <section id="stacks" class="card stacks-card" aria-labelledby="stacks-title">
     <div class="card-head"><h2 id="stacks-title">Stacks</h2>
-      <span class="card-head-end muted">Switch a Stack on or off, then Sync and Apply.</span></div>
+      <span class="card-head-end muted">The switch decides whether a Stack runs on this host. Changes take effect at the next Apply.</span></div>
     {{with .AutoUpdate}}<p class="timer-line {{if eq . "active"}}ok{{else}}warn-text{{end}}">{{if eq . "active"}}{{template "i-check"}}{{else}}{{template "i-warn"}}{{end}} <span class="auto-update">{{"podman-auto-update.timer"}}: <b class="timer-{{.}}">{{.}}</b></span></p>{{end}}
     <ul class="stack-list">
       {{range .ActiveGroups}}{{template "stack-row" (dict "G" . "H" "h3")}}{{end}}
@@ -174,15 +174,16 @@
 {{define "stack-row"}}{{$g := .G}}
       <li class="stack stack-row{{if not $g.Selected}} unselected{{end}}{{if $g.Stack.Problem}} is-invalid{{end}}" data-stack="{{$g.Stack.Name}}">
         <div class="stack-main">
-          {{template "switch" $g}}
           {{if eq .H "h4"}}<h4 class="stack-name">{{$g.Stack.Name}}</h4>{{else}}<h3 class="stack-name">{{$g.Stack.Name}}</h3>{{end}}
           <span class="muted kind">{{$g.Stack.Kind}}</span>
           {{with $g.Stack.Problem}}<span class="badge badge-bad invalid">invalid</span>{{end}}
           <span class="stack-end">
             {{if and (not $g.Selected) $g.Deployed}}<span class="badge badge-bad pending">torn down at next Apply</span>{{else if and $g.Selected (not $g.Deployed)}}<span class="badge badge-ok pending">deploys at next Apply</span>{{end}}
-            {{if $g.Containers}}{{if not $g.Selected}}<span class="not-selected">not selected</span>{{end}}
-            {{else if not $g.Selected}}<span class="not-selected">not selected · no containers</span>{{end}}
+            {{if $g.Containers}}<span class="muted">{{groupState $g}}</span>{{if not $g.Selected}} <span class="not-selected">· not selected</span>{{end}}
+            {{else if not $g.Selected}}<span class="not-selected">not selected · no containers</span>
+            {{else}}<span class="muted">no containers yet</span>{{end}}
           </span>
+          {{template "switch" $g}}
         </div>
         {{with $g.Stack.Problem}}<p class="problem">This Stack {{.}}.</p>{{end}}
         {{with $g.Stack.Warning}}<p class="warning">This Stack {{.}}.</p>{{end}}
@@ -200,7 +201,7 @@
       {{if eq .From .To}}
       <span class="range muted">Already at <code title="{{.To}}">{{short .To}}</code>.</span>
       {{else}}
-      <span class="range"><code title="{{.From}}">{{short .From}}</code><span class="arrow">→</span><code title="{{.To}}">{{short .To}}</code></span>
+      {{template "range" .}}
       {{end}}
       <span class="card-head-end plan-summary">
         {{with .Count "deploy"}}<span class="pill pill-ok">{{.}} deploy</span>{{end}}
@@ -219,7 +220,7 @@
     </ol>
     {{end}}
     {{if .Entries}}
-    <div class="table-wrap">
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Sync Plan entries">
     <table class="plan-entries grid">
       <thead><tr><th scope="col">Stack</th><th scope="col">Action</th><th scope="col">Why</th></tr></thead>
       <tbody>

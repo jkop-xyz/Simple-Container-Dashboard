@@ -7,7 +7,8 @@
 {{template "head"}}
 </head>
 <body class="logs-page">
-{{template "shell-start" (dict "Hostname" .Hostname "Page" "logs" "Parent" "Containers" "ParentHref" "/containers" "Crumb" (printf "%s logs" .C.Name))}}
+{{if .Stack}}{{template "shell-start" (dict "Hostname" .Hostname "Index" .Index "Page" "logs" "Grand" "Containers" "GrandHref" "/containers" "Parent" .Stack "ParentHref" (printf "/containers?q=%s" .Stack) "Crumb" (printf "%s logs" .C.Name))}}
+{{else}}{{template "shell-start" (dict "Hostname" .Hostname "Index" .Index "Page" "logs" "Parent" "Containers" "ParentHref" "/containers" "Crumb" (printf "%s logs" .C.Name))}}{{end}}
   <div class="card log-card">
     <div class="card-head">
       <h1 class="container-name">{{.C.Name}}</h1>
@@ -21,7 +22,7 @@
       <span class="card-head-end">
         <span class="live" hidden><span class="live-dot" aria-hidden="true"></span>Live</span>
         <span class="log-status muted" role="status"></span>
-        <button type="button" class="btn btn-secondary btn-sm log-pause" aria-pressed="false">Pause</button>
+        <button type="button" class="btn btn-text btn-sm log-pause" aria-pressed="false">Pause</button>
       </span>
     </div>
     <div class="log-toolbar">
@@ -31,7 +32,7 @@
       <label class="field"><span>Lines</span>
         <select class="log-lines">{{range .Tails}}<option value="{{.}}"{{if eq . $.Tail}} selected{{end}}>{{.}}</option>{{end}}</select></label>
       <label class="field check"><input type="checkbox" class="log-timestamps"> <span>Timestamps</span></label>
-      <button type="button" class="btn btn-secondary btn-sm log-download">Download</button>
+      <button type="button" class="btn btn-text btn-sm log-download">Download</button>
     </div>
     {{if or .D.OOMKilled .D.HealthOutput .D.ExitCode}}<div class="crash-detail">
       {{if or .D.OOMKilled .D.ExitCode}}<p>{{template "i-error"}} Last exit <b class="mono">{{.D.ExitCode}}</b>{{if .D.OOMKilled}} · <b>killed: out of memory</b>{{end}}{{if not .D.FinishedAt.IsZero}} · <time title="{{when .D.FinishedAt}}">{{ago .D.FinishedAt}}</time>{{end}}</p>{{end}}

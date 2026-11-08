@@ -33,9 +33,7 @@ func TestPendingChangesBarAndApplyHint(t *testing.T) {
 	assertContains(t, dep, "2 pending changes:", "deploy <b>arriving</b>", "tear down <b>leaving</b>", "Sync now",
 		`title="Nothing to apply yet: press Sync to fetch and review a plan"`)
 	_, c := e.get("/containers")
-	if strings.Contains(c, "pending-bar") {
-		t.Error("the Containers page shouldn't carry the pending bar")
-	}
+	assertContains(t, c, "pending-bar", "2 pending changes:") // on every page, so it can't be missed
 
 	body := e.sync() // a fresh plan now covers the changes
 	if strings.Contains(body, "pending-bar") {
@@ -55,7 +53,7 @@ func TestOverviewIsASummary(t *testing.T) {
 		dockertest.Container{ID: "w1", Name: "web-1", State: "running", Labels: composeLabel("web")},
 	)
 	_, o := e.get("/")
-	assertContains(t, o, `class="summary-row si-err"`, `href="/containers?q=ha"`, "1 unhealthy · 1/1 running",
+	assertContains(t, o, `class="summary-row si-err"`, `href="/containers?q=ha"`, ">1 unhealthy<",
 		`class="summary-row si-ok"`, `href="/deployment">Manage Stacks`, "Last Apply", "CPU usage")
 	for _, absent := range []string{`id="containers"`, `id="stacks"`, `class="switch"`} {
 		if strings.Contains(o, absent) {
@@ -75,5 +73,5 @@ func TestEachPageHasItsOwnHeading(t *testing.T) {
 	}
 	_, dep := e.get("/deployment")
 	assertContains(t, dep, `<h3 class="list-heading">Not on this host</h3>`, `<h4 class="stack-name">app</h4>`,
-		`Run here<span class="visually-hidden">: app</span>`)
+		`<span class="switch-label visually-hidden">Run app here</span>`)
 }

@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -55,6 +56,40 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	},
 	"ports": view.Ports,
 	"sicon": sicon,
+	// groupState sums up a Stack's containers: the problems if there are any, otherwise
+	// how many run. Never both, so it can't read as broken and fine at once.
+	"groupState": func(g view.Group) string {
+		var parts []string
+		if n := g.CrashLooping(); n > 0 {
+			parts = append(parts, fmt.Sprintf("%d crash-looping", n))
+		}
+		if n := g.Unhealthy(); n > 0 {
+			parts = append(parts, fmt.Sprintf("%d unhealthy", n))
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, " · ")
+		}
+		if len(g.Containers) == 0 {
+			return "no containers yet"
+		}
+		if g.Running() < len(g.Containers) {
+			return fmt.Sprintf("%d/%d running", g.Running(), len(g.Containers))
+		}
+		if g.Restarted() {
+			return fmt.Sprintf("%d/%d running · restarted", g.Running(), len(g.Containers))
+		}
+		return fmt.Sprintf("%d/%d running", g.Running(), len(g.Containers))
+	},
+	// problems counts containers that need attention.
+	"problems": func(cs []view.Container) int {
+		n := 0
+		for _, c := range cs {
+			if c.NeedsAttention() {
+				n++
+			}
+		}
+		return n
+	},
 	// stackIcon is a Stack's status icon in the Overview summary.
 	"stackIcon": func(g view.Group) string {
 		switch {
@@ -75,11 +110,13 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 		return n
 	},
 	// memBar sizes a container's memory bar relative to the busiest container.
+	// memBar sizes a memory bar on a square-root scale of the share of host memory, so
+	// small containers stay visible (the exact share is in the tooltip).
 	"memBar": func(mem, total uint64) float64 {
-		if total == 0 {
+		if total == 0 || mem == 0 {
 			return 0
 		}
-		return min(float64(mem)/float64(total)*100, 100)
+		return max(3, min(math.Sqrt(float64(mem)/float64(total))*100, 100))
 	},
 	"pct": func(part, total uint64) string {
 		if total == 0 {
@@ -317,6 +354,13 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	if page == "" {
 		page = "overview"
 	}
+	data, status := s.dashboard(ctx, r, page)
+	render(w, status, "index.html", data)
+}
+
+// dashboard gathers everything a dashboard page shows. Subpages use it too, so the app
+// bar, toolbar and navigation counts look the same on every page.
+func (s *Server) dashboard(ctx context.Context, r *http.Request, page string) (indexData, int) {
 	data := indexData{Hostname: s.deps.Hostname, RepoName: s.deps.RepoName, BrowserHost: browserHost(r),
 		Missing: s.missing(), NewRelease: s.newRelease(), Demo: s.deps.Demo, View: page}
 	status := http.StatusOK
@@ -402,7 +446,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	render(w, status, "index.html", data)
+	return data, status
 }
 
 // discover returns the Stacks in the clone's checked-out commit plus any new ones in the
@@ -523,10 +567,12 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "reading state: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	chrome, _ := s.dashboard(r.Context(), r, "history")
 	data := struct {
 		Hostname string
 		History  []state.ApplyRecord
-	}{s.deps.Hostname, st.History}
+		Index    indexData
+	}{s.deps.Hostname, st.History, chrome}
 	render(w, http.StatusOK, "history.html", data)
 }
 
@@ -676,6 +722,15 @@ func (s *Server) logsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	details, _ := s.deps.Runtime.Inspect(r.Context(), c.ID)
+	chrome, _ := s.dashboard(r.Context(), r, "logs")
+	stack := ""
+	for _, g := range chrome.Groups {
+		for _, gc := range g.Containers {
+			if gc.ID == c.ID {
+				stack = g.Stack.Name
+			}
+		}
+	}
 	data := struct {
 		Hostname string
 		C        dockerapi.Container
@@ -683,7 +738,9 @@ func (s *Server) logsPage(w http.ResponseWriter, r *http.Request) {
 		ExitCode string
 		Tail     int
 		Tails    []int
-	}{s.deps.Hostname, c, details, exitCode(c.Status), LogTail, LogTails}
+		Index    indexData
+		Stack    string
+	}{s.deps.Hostname, c, details, exitCode(c.Status), LogTail, LogTails, chrome, stack}
 	render(w, http.StatusOK, "logs.html", data)
 }
 
@@ -768,11 +825,13 @@ func (s *Server) unitLogsPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no Quadlet unit named "+unit, http.StatusNotFound)
 		return
 	}
+	chrome, _ := s.dashboard(r.Context(), r, "logs")
 	data := struct {
 		Hostname, Unit string
 		Tail           int
 		Tails          []int
-	}{s.deps.Hostname, unit, LogTail, LogTails}
+		Index          indexData
+	}{s.deps.Hostname, unit, LogTail, LogTails, chrome}
 	render(w, http.StatusOK, "unitlogs.html", data)
 }
 
@@ -923,12 +982,14 @@ func (s *Server) historyOutput(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "reading Apply output: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	chrome, _ := s.dashboard(r.Context(), r, "history")
 	render(w, http.StatusOK, "applyoutput.html", struct {
 		Hostname string
 		Rec      *state.ApplyRecord
 		Lines    []string
 		Kept     bool
-	}{s.deps.Hostname, rec, lines, ok})
+		Index    indexData
+	}{s.deps.Hostname, rec, lines, ok, chrome})
 }
 
 // exitCode extracts N from a status like "Exited (N) 3 hours ago".
@@ -963,11 +1024,11 @@ func navCount(v any, name string) int {
 	return -1
 }
 
-// backTo is where Sync and Apply return to: the Deployment page if they were pressed
-// there, otherwise the Overview.
+// backTo is where Sync and Apply return to: the Overview if they were pressed there,
+// otherwise the Deployment page, which shows the plan.
 func backTo(r *http.Request, anchor string) string {
-	if ref, err := url.Parse(r.Referer()); err == nil && ref.Path == "/deployment" {
-		return "/deployment" + anchor
+	if ref, err := url.Parse(r.Referer()); err == nil && ref.Path == "/" {
+		return "/" + anchor
 	}
-	return "/" + anchor
+	return "/deployment" + anchor // the Sync Plan and Apply live there
 }

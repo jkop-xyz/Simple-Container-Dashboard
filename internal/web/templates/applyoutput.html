@@ -7,7 +7,7 @@
 {{template "head"}}
 </head>
 <body class="logs-page">
-{{template "shell-start" (dict "Hostname" .Hostname "Page" "history" "Grand" "Deployment" "GrandHref" "/deployment" "Parent" "Apply history" "ParentHref" "/history" "Crumb" (printf "Apply of %s" (rel .Rec.Finished)))}}
+{{template "shell-start" (dict "Hostname" .Hostname "Index" .Index "Page" "history" "Grand" "Deployment" "GrandHref" "/deployment" "Parent" "Apply history" "ParentHref" "/history" "Crumb" (printf "Apply of %s" (rel .Rec.Finished)))}}
   <div class="card log-card">
     <div class="card-head">
       <h1 class="entry-title">Apply of <time title="{{when .Rec.Finished}}">{{rel .Rec.Finished}}</time></h1>
@@ -16,7 +16,7 @@
       <span class="card-head-end">{{template "outcome" .Rec}}</span>
     </div>
     {{with .Rec.Results}}
-    <div class="table-wrap">
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Stacks in this Apply">
     <table class="grid">
       <thead><tr><th scope="col">Stack</th><th scope="col">Action</th><th scope="col">Outcome</th><th scope="col">Afterwards</th></tr></thead>
       <tbody>

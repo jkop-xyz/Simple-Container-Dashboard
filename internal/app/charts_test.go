@@ -45,7 +45,7 @@ func TestMetricsAreSampledForTheCharts(t *testing.T) {
 	if !strings.Contains(raw, `"spark":"M`) || !strings.Contains(raw, `"memoryBytes":536870912`) {
 		t.Errorf("status lacks sparkline/memory: %s", raw)
 	}
-	assertContains(t, row(mustGet(h), "c1"), `class="spark-fill`, `d="M`, `membar-fill" style="width: 3.125%"`, `title="3.1% of host memory"`)
+	assertContains(t, row(mustGet(h), "c1"), `class="spark-fill`, `d="M`, `membar-fill" style="width: 17.67`, `title="3.1% of host memory"`)
 }
 
 func TestMetricsStartEmpty(t *testing.T) {

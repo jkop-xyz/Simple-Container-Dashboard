@@ -111,7 +111,7 @@
   <label class="switch">
     <input type="checkbox" name="selected" value="true"{{if .Selected}} checked{{end}} data-stack="{{.Stack.Name}}">
     <span class="switch-track" aria-hidden="true"></span>
-    <span class="switch-label">Run here<span class="visually-hidden">: {{.Stack.Name}}</span></span>
+    <span class="switch-label visually-hidden">Run {{.Stack.Name}} here</span>
   </label>
   <noscript><button class="btn btn-text btn-sm">Save</button></noscript>
 </form>{{end}}
@@ -146,7 +146,7 @@
         </div>
       </td>
       <td class="ports col-ports">{{if not (ports $c.Container .Host)}}<span class="faint">—</span>{{end}}{{range ports $c.Container .Host}}{{if .URL}}<a class="port" href="{{.URL}}" target="_blank" rel="noopener" aria-label="Open port {{.Port}} in a new tab">{{.Port}}{{template "i-open"}}</a>{{else}}<span class="port text">{{.Label}}</span>{{end}} {{end}}</td>
-      <td class="actions-cell"><a class="icon-btn logs-link" href="/containers/{{$c.ID}}/logs" aria-label="Logs for {{$c.Name}}" title="Logs">{{template "i-logs"}}</a></td>
+      <td class="actions-cell"><a class="icon-btn logs-link" href="/containers/{{$c.ID}}/logs" tabindex="-1" aria-hidden="true" title="Logs">{{template "i-logs"}}</a></td>
     </tr>{{end}}
 
 {{/* An Apply's commit range: "at abc1234" when it didn't move, else "abc1234 → def5678". */}}

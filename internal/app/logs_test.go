@@ -199,7 +199,7 @@ func TestLogsPageShowsTheContainersCondition(t *testing.T) {
 	)
 	_, sick := h.get("/containers/sick/logs")
 	assertContains(t, sick, "health-unhealthy", "4 restarts", "The log spans restarts", `class="log-filter"`, `class="log-lines"`,
-		`<option value="10000">`, `class="log-timestamps"`, `class="btn btn-secondary btn-sm log-download"`)
+		`<option value="10000">`, `class="log-timestamps"`, `class="btn btn-text btn-sm log-download"`)
 	_, dead := h.get("/containers/dead/logs")
 	assertContains(t, dead, "exit code 137", "badge-bad exit-code")
 }
