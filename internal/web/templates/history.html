@@ -28,7 +28,8 @@
       <span class="range"><code title="{{.From}}">{{short .From}}</code><span class="arrow">→</span><code title="{{.To}}">{{short .To}}</code></span>
       <span class="card-head-end">
         {{if .ID}}<a class="btn btn-ghost btn-sm view-output" href="/history/{{.ID}}">View output</a>{{end}}
-        {{if .OK}}<span class="badge badge-ok"><span class="ok">✓</span> succeeded</span>{{else}}<span class="badge badge-bad"><span class="bad">✗</span> {{if .Error}}stopped{{else}}{{.Failures}} failed{{end}}</span>{{end}}
+        {{if eq .HealthCheck "checking"}}<span class="badge badge-neutral health-check"><span class="spinner" aria-hidden="true"></span>checking health…</span>{{end}}
+        {{if .OK}}{{if .BadAfter}}<span class="badge badge-warn after-summary"><span class="ok">✓</span> applied · {{.BadAfter}} unhealthy after</span>{{else}}<span class="badge badge-ok"><span class="ok">✓</span> succeeded</span>{{end}}{{else}}<span class="badge badge-bad"><span class="bad">✗</span> {{if .Error}}stopped{{else}}{{.Failures}} failed{{end}}</span>{{end}}
       </span>
     </div>
     {{with .Error}}<div class="callout callout-bad error">Stopped before deploying anything: {{.}}</div>{{end}}
@@ -40,12 +41,13 @@
     {{if .Results}}
     <div class="table-wrap">
     <table class="grid">
-      <thead><tr><th scope="col">Stack</th><th scope="col">Action</th><th scope="col">Outcome</th></tr></thead>
+      <thead><tr><th scope="col">Stack</th><th scope="col">Action</th><th scope="col">Outcome</th><th scope="col">Afterwards</th></tr></thead>
       <tbody>
       {{range .Results}}
         <tr class="history-result plan-entry" data-stack="{{.Stack}}" data-outcome="{{.Action}}">
           <td class="name">{{.Stack}}</td><td><span class="action">{{.Action}}</span></td>
           <td>{{if .Error}}<span class="bad">failed:</span> <pre class="history-error">{{.Error}}</pre>{{else}}<span class="ok">ok</span>{{end}}</td>
+          <td class="after">{{with .After}}<span class="badge {{if eq . "healthy"}}badge-ok{{else if eq . "still starting"}}badge-neutral{{else}}badge-bad{{end}} after-{{.}}">{{.}}</span>{{else}}<span class="faint">—</span>{{end}}</td>
         </tr>
       {{end}}
       </tbody>

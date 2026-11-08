@@ -28,6 +28,12 @@ type syncEnv struct {
 
 func newSyncEnv(t *testing.T, initial map[string]string) *syncEnv {
 	t.Helper()
+	return newSyncEnvWith(t, initial)
+}
+
+// newSyncEnvWith is newSyncEnv with extra app options.
+func newSyncEnvWith(t *testing.T, initial map[string]string, extra ...func(*app.Options)) *syncEnv {
+	t.Helper()
 	remote := gittest.NewRemote(t)
 	if _, ok := initial[".gitignore"]; !ok {
 		initial = merge(initial, map[string]string{".gitignore": "secrets.env\n"})
@@ -36,10 +42,10 @@ func newSyncEnv(t *testing.T, initial map[string]string) *syncEnv {
 	rec := gitOnly()
 	clone := filepath.Join(t.TempDir(), "repo")
 	dataDir := t.TempDir()
-	h := startDashboard(t, withRepo(remote.URL, clone), func(o *app.Options) {
+	h := startDashboard(t, append([]func(*app.Options){withRepo(remote.URL, clone), func(o *app.Options) {
 		o.Runner = rec
 		o.DataDir = dataDir
-	})
+	}}, extra...)...)
 	return &syncEnv{harness: h, remote: remote, rec: rec, clone: clone, state: state.Open(filepath.Join(dataDir, "state.json")), dataDir: dataDir}
 }
 

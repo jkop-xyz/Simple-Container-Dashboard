@@ -43,6 +43,20 @@ type ApplyRecord struct {
 	Results []StackResult `json:"results"`
 	// Commits are the commits this Apply rolled out, newest first.
 	Commits []Commit `json:"commits,omitempty"`
+	// HealthCheck is "checking" while the Stacks are watched after the Apply and "done"
+	// once their verdicts are in; empty when nothing was watched.
+	HealthCheck string `json:"healthCheck,omitempty"`
+}
+
+// BadAfter counts the Stacks that turned out badly after the Apply.
+func (r ApplyRecord) BadAfter() int {
+	n := 0
+	for _, res := range r.Results {
+		if res.BadAfter() {
+			n++
+		}
+	}
+	return n
 }
 
 // Commit is one rolled-out commit.
@@ -60,6 +74,23 @@ type StackResult struct {
 	Action string `json:"action"`
 	// Error is the failure text, or empty on success.
 	Error string `json:"error,omitempty"`
+	// After is how the Stack ended up once the Apply settled (see the After* values),
+	// or empty when it wasn't watched.
+	After string `json:"after,omitempty"`
+}
+
+// How a Stack ended up after an Apply.
+const (
+	AfterHealthy    = "healthy"
+	AfterUnhealthy  = "unhealthy"
+	AfterNotRunning = "not running"
+	AfterRestarting = "restarting"
+	AfterStarting   = "still starting"
+)
+
+// BadAfter reports whether the verdict means the Stack isn't working.
+func (r StackResult) BadAfter() bool {
+	return r.After == AfterUnhealthy || r.After == AfterNotRunning || r.After == AfterRestarting
 }
 
 // OK reports whether the Apply finished without any failure.

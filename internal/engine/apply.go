@@ -160,8 +160,18 @@ func (e *Engine) runApply(run *ApplyRun) {
 		rec := run.Record()
 		rec.ID = NewApplyID(run.Started, run.Plan.To)
 		if err := e.Outputs.Save(rec.ID, run.Output.Lines()); err != nil {
-			slog.Error("saving Apply output", "err", err)
-			rec.ID = "" // no output to link to
+			slog.Error("saving Apply output", "err", err) // the page then says none was kept
+		}
+		toWatch := watched(run)
+		if e.Probe != nil && len(toWatch) > 0 && run.Err() == nil {
+			rec.HealthCheck = "checking"
+			e.watchers.Add(1)
+			defer func() {
+				go func() {
+					defer e.watchers.Done()
+					e.watch(rec.ID, toWatch)
+				}()
+			}()
 		}
 		var dropped []state.ApplyRecord
 		if err := e.State.Update(func(st *state.State) { dropped = st.AddHistory(rec) }); err != nil {

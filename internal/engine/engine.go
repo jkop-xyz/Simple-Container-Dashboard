@@ -35,6 +35,11 @@ type Engine struct {
 	Runtime config.Runtime
 	// Outputs keeps each Apply's output for the history.
 	Outputs Outputs
+	// Probe, when set, watches deployed Stacks after each Apply; WatchFor and
+	// WatchEvery tune that (defaults DefaultWatchFor / DefaultWatchEvery).
+	Probe                Probe
+	WatchFor, WatchEvery time.Duration
+	watchers             sync.WaitGroup
 
 	mu       sync.Mutex
 	inflight *call
@@ -244,3 +249,6 @@ func (e *Engine) secretsFingerprints(ss []stacks.Stack) (map[string]string, erro
 	}
 	return out, nil
 }
+
+// Wait blocks until running post-Apply health checks have finished.
+func (e *Engine) Wait() { e.watchers.Wait() }
