@@ -21,6 +21,23 @@ A tiny, mostly read-only web dashboard for the containers on one host, working w
 - Volumes are never deleted. Images of unchanged Stacks are never updated; that's left to Renovate and Podman auto-update ([ADR 0002](docs/adr/0002-sync-is-repo-driven-and-never-deletes-data.md)).
 - The last 20 Applies are kept in a history view.
 
+## Try it: demo mode
+
+```sh
+scd demo                          # or: scd --demo
+scd demo --listen 0.0.0.0:1234    # to open it from another machine
+```
+
+This serves the real dashboard on `http://127.0.0.1:1234`, but against simulated containers and a simulated Deployment Repo. Their stats and logs keep moving, and one commit is already waiting upstream, so **Sync** shows a plan straight away:
+- one Stack redeployed,
+- one torn down,
+- a new one you can tick,
+- an Invalid directory.
+
+**Apply** really adds and removes the simulated containers. The **Simulate a push** button creates further commits to sync.
+
+Demo mode needs no Docker, Podman, git or repository, and touches nothing on the machine. Its few temp files are removed when you press Ctrl+C.
+
 ## Install
 
 scd is a single static binary for Linux (amd64 and arm64) that runs as a `systemctl --user` service.

@@ -101,3 +101,5 @@ a.port:hover { text-decoration: underline; }
 .timer-active { color: var(--ok); }
 .auto-update b:not(.timer-active) { color: var(--bad); }
 .new-release { color: var(--ok); text-decoration: none; font-weight: 600; }
+.demo-banner { margin-top: 16px; padding: 10px 14px; border: 1px dashed var(--ok); border-radius: 6px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.demo-banner form { margin: 0 0 0 auto; }

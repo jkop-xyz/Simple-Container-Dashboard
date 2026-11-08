@@ -59,6 +59,7 @@ type Server struct {
 	mu         sync.Mutex
 	containers []Container
 	feeds      map[string]*feed
+	close      func()
 }
 
 // feed is one container's log output, which followers wait on.
@@ -107,22 +108,56 @@ var versionPrefix = regexp.MustCompile(`^/v[0-9.]+`)
 // New starts a fake API server and stops it when the test ends.
 func New(t testing.TB) *Server {
 	t.Helper()
+	s, err := Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
+}
+
+// Start starts a fake API server outside of a test (e.g. for demo mode). Call Close to
+// stop it.
+func Start() (*Server, error) {
 	// Unix socket paths are limited to ~108 bytes, so use a short temp dir.
 	dir, err := os.MkdirTemp("", "scd-dockertest-")
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-
 	s := &Server{Socket: filepath.Join(dir, "api.sock")}
 	ln, err := net.Listen("unix", s.Socket)
 	if err != nil {
-		t.Fatal(err)
+		os.RemoveAll(dir)
+		return nil, err
 	}
 	srv := &http.Server{Handler: http.HandlerFunc(s.serve)}
 	go srv.Serve(ln)
-	t.Cleanup(func() { srv.Close() })
-	return s
+	s.close = func() {
+		srv.Close()
+		os.RemoveAll(dir)
+	}
+	return s, nil
+}
+
+// Close stops the server and removes its socket.
+func (s *Server) Close() {
+	if s.close != nil {
+		s.close()
+	}
+}
+
+// Update changes the containers the fake reports, under its lock.
+func (s *Server) Update(fn func([]Container) []Container) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.containers = fn(append([]Container(nil), s.containers...))
+}
+
+// Containers returns a copy of the containers the fake reports.
+func (s *Server) Containers() []Container {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Container(nil), s.containers...)
 }
 
 // SetStats replaces one container's stats reading.
