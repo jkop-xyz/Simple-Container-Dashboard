@@ -92,7 +92,7 @@
     </table>
     </div>
     {{end}}
-    {{if .Containers}}{{template "containers" (dict "Rows" .Containers "Host" $.BrowserHost)}}{{else}}<p class="empty">No containers.</p>{{end}}
+    {{if .Containers}}{{template "containers" (dict "Rows" .Containers "Host" $.BrowserHost)}}{{else}}<p class="empty">No containers.{{if not .Selected}} Switch this Stack on, then Sync and Apply to deploy it here.{{end}}</p>{{end}}
   </section>
   {{end}}
 
@@ -141,7 +141,7 @@
         <span class="bar" aria-hidden="true"><span class="bar-fill" style="width: {{cpuBar .}}%"></span></span>
       </td>
       <td class="num"><span class="mem num">{{mem .}}</span></td>
-      <td class="ports">{{range ports .Container $host}}{{if .URL}}<a class="port" href="{{.URL}}" target="_blank" rel="noopener">{{.Port}} ↗</a>{{else}}<span class="port text">{{.Label}}</span>{{end}} {{end}}</td>
+      <td class="ports">{{if not (ports .Container $host)}}<span class="faint">—</span>{{end}}{{range ports .Container $host}}{{if .URL}}<a class="port" href="{{.URL}}" target="_blank" rel="noopener">{{.Port}} ↗</a>{{else}}<span class="port text">{{.Label}}</span>{{end}} {{end}}</td>
       <td class="actions-cell"><a class="btn btn-ghost btn-sm logs-link" href="/containers/{{.ID}}/logs">Logs</a></td>
     </tr>
   {{end}}

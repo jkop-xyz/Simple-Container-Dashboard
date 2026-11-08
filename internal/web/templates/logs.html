@@ -22,6 +22,7 @@
       <span class="badges"><span class="state-{{.C.State}}"><span class="state">{{.C.State}}</span></span></span>
       <span class="muted">last {{.Tail}} lines{{if eq .C.State "running"}}, then live{{end}}</span>
       <span class="card-head-end">
+        <span class="live" hidden><span class="live-dot" aria-hidden="true"></span>Live</span>
         <span class="log-status muted"></span>
         <button type="button" class="btn btn-secondary btn-sm log-pause" aria-pressed="false">Pause</button>
       </span>

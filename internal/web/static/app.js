@@ -3,9 +3,32 @@
 
 // Stack checkboxes save as soon as they change. Saving only changes the selection;
 // nothing deploys until an Apply.
-document.addEventListener("change", (e) => {
+// Saved in the background, then the page reloads in place (keeping the scroll position)
+// because the change marks any Sync Plan stale.
+document.addEventListener("change", async (e) => {
   const box = e.target.closest(".select input[type=checkbox]");
-  if (box) box.form.submit();
+  if (!box) return;
+  box.disabled = true;
+  try {
+    await fetch(box.form.action, { method: "POST", body: new URLSearchParams(new FormData(box.form)) });
+  } finally {
+    sessionStorage.setItem("scd-scroll", String(window.scrollY));
+    location.reload();
+  }
+});
+try {
+  const y = sessionStorage.getItem("scd-scroll");
+  if (y !== null) { sessionStorage.removeItem("scd-scroll"); window.scrollTo(0, Number(y)); }
+} catch (_) { /* storage unavailable: nothing to restore */ }
+
+// Sync and Apply can take a moment: show that the click registered.
+document.addEventListener("submit", (e) => {
+  const btn = e.target.querySelector("button.sync-button, button.apply-button, button.apply-cta");
+  if (!btn) return;
+  btn.disabled = true;
+  btn.classList.add("is-busy");
+  const label = btn.matches(".sync-button") ? "Syncing…" : "Applying…";
+  btn.innerHTML = `<span class="spinner" aria-hidden="true"></span>${label}`;
 });
 
 // Follow a running Apply's output live, then reload to show the results.
@@ -89,16 +112,23 @@ if (logView) {
     if (atBottom) logView.scrollTop = logView.scrollHeight;
   };
 
+  const live = document.querySelector(".live");
   const es = new EventSource(logView.dataset.stream);
+  es.onopen = () => { if (live) live.hidden = paused; };
   es.onmessage = (e) => (paused ? held.push(e.data) : append([e.data]));
   es.addEventListener("error", (e) => { if (e.data) status.textContent = "error: " + e.data; });
-  es.addEventListener("done", () => { es.close(); status.textContent = "(end of log)"; });
+  es.addEventListener("done", () => {
+    es.close();
+    if (live) live.hidden = true;
+    status.textContent = "end of log";
+  });
 
   pauseBtn.addEventListener("click", () => {
     paused = !paused;
     pauseBtn.textContent = paused ? "Resume" : "Pause";
     pauseBtn.setAttribute("aria-pressed", String(paused));
     if (!paused && held.length) { append(held); held = []; }
-    status.textContent = paused ? "(paused)" : "";
+    status.textContent = paused ? "paused" : "";
+    if (live && es.readyState !== EventSource.CLOSED) live.hidden = paused;
   });
 }

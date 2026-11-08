@@ -84,7 +84,7 @@ func TestUnpublishedPortsAreNotShown(t *testing.T) {
 	h.api.SetContainers(dockertest.Container{ID: "n", Name: "n", State: "running", Ports: []dockertest.Port{
 		{PrivatePort: 6379, Type: "tcp"},
 	}})
-	if cell := strings.TrimSpace(portsCell(h.getAs("nas.lan:1234"), "n")); cell != "" {
+	if cell := portsCell(h.getAs("nas.lan:1234"), "n"); strings.Contains(cell, `class="port`) || strings.Contains(cell, "6379") {
 		t.Errorf("expected no ports, got %q", cell)
 	}
 }

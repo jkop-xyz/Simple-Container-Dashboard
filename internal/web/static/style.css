@@ -385,3 +385,15 @@ a.port:hover { background: var(--accent); color: var(--accent-fg); }
   .host { border-left: 0; padding-left: 0; }
   .card-head-end { margin-left: 0; }
 }
+
+/* ---------- Pass 3 ---------- */
+.faint { color: var(--faint); }
+.is-busy .spinner { border-color: color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; margin-right: 0; }
+.live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650; color: var(--ok); }
+.live[hidden] { display: none; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; transform: scale(.8); } }
+@media (prefers-reduced-motion: reduce) {
+  .live-dot, .spinner { animation: none; }
+  .bar-fill, .switch-track, .switch-track::after { transition: none; }
+}
