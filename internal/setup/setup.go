@@ -5,15 +5,18 @@ package setup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/config"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/repo"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner"
 )
 
@@ -243,14 +246,95 @@ func (env Env) run(ctx context.Context, args ...string) error {
 	return err
 }
 
-// chooseRepo asks for the Deployment Repo.
+// ghRepo is one entry of `gh repo list --json`.
+type ghRepo struct {
+	NameWithOwner    string `json:"nameWithOwner"`
+	URL              string `json:"url"`
+	IsPrivate        bool   `json:"isPrivate"`
+	DefaultBranchRef struct {
+		Name string `json:"name"`
+	} `json:"defaultBranchRef"`
+}
+
+// chooseRepo signs in to GitHub with gh, lets the operator pick one of their repos as
+// the Deployment Repo, and clones it right away so auth problems show up now.
 func (s *state) chooseRepo(ctx context.Context, env Env) error {
-	url := env.Prompt.Input("Deployment Repo URL (e.g. https://github.com/you/homelab.git)", "")
-	if url == "" {
-		return errors.New("a Deployment Repo URL is required")
+	if err := githubAuth(ctx, env); err != nil {
+		return err
 	}
-	s.repo = config.Repo{URL: url, Path: filepath.Join(env.DataDir, "repo")}
+	repos, err := listRepos(ctx, env)
+	if err != nil {
+		env.say("Couldn't list your GitHub repos (%v); enter the URL instead.", err)
+	}
+	var items []string
+	for _, r := range repos {
+		label := r.NameWithOwner
+		if r.IsPrivate {
+			label += " (private)"
+		}
+		items = append(items, label)
+	}
+	s.repo = config.Repo{Path: filepath.Join(env.DataDir, "repo")}
+	if len(items) > 0 {
+		if i := env.Prompt.Pick("Which repo is this host's Deployment Repo?", items); i >= 0 {
+			s.repo.URL = repos[i].URL + ".git"
+			s.repo.Branch = repos[i].DefaultBranchRef.Name
+		}
+	}
+	if s.repo.URL == "" {
+		s.repo.URL = env.Prompt.Input("Deployment Repo URL (e.g. https://github.com/you/homelab.git)", "")
+	}
+	if s.repo.URL == "" {
+		return errors.New("a Deployment Repo is required")
+	}
+	if s.repo.Branch != "" {
+		env.say("Deployment Repo: %s (branch %s)", s.repo.URL, s.repo.Branch)
+	} else {
+		env.say("Deployment Repo: %s (default branch)", s.repo.URL)
+	}
+
+	r := &repo.Repo{Runner: env.Runner, URL: s.repo.URL, Branch: s.repo.Branch, Path: s.repo.Path}
+	if r.Exists() {
+		env.say("Using the existing clone at %s.", r.Path)
+		return nil
+	}
+	env.say("Cloning into %s …", r.Path)
+	if err := r.EnsureClone(ctx); err != nil {
+		return fmt.Errorf("%w\nCheck that `gh auth status` shows you logged in with access to the repo, then run `scd setup` again", err)
+	}
 	return nil
+}
+
+// githubAuth logs in with gh if needed and makes git use gh for GitHub credentials.
+func githubAuth(ctx context.Context, env Env) error {
+	if _, err := env.Runner.Run(ctx, runner.Cmd{Name: "gh", Args: []string{"auth", "status"}}); err != nil {
+		env.say("\nLog in to GitHub so scd can fetch your private Deployment Repo:")
+		if err := env.run(ctx, "gh", "auth", "login", "--hostname", "github.com", "--git-protocol", "https"); err != nil {
+			return fmt.Errorf("gh auth login: %w", err)
+		}
+	} else {
+		env.say("Already logged in to GitHub.")
+	}
+	if err := env.run(ctx, "gh", "auth", "setup-git"); err != nil {
+		return fmt.Errorf("gh auth setup-git: %w", err)
+	}
+	return nil
+}
+
+// listRepos lists the repos the logged-in user owns.
+func listRepos(ctx context.Context, env Env) ([]ghRepo, error) {
+	res, err := env.Runner.Run(ctx, runner.Cmd{Name: "gh", Args: []string{
+		"repo", "list", "--limit", "1000", "--json", "nameWithOwner,url,isPrivate,defaultBranchRef",
+	}})
+	if err != nil {
+		return nil, err
+	}
+	var repos []ghRepo
+	if err := json.Unmarshal(res.Output, &repos); err != nil {
+		return nil, err
+	}
+	sort.Slice(repos, func(i, j int) bool { return repos[i].NameWithOwner < repos[j].NameWithOwner })
+	return repos, nil
 }
 
 func (s *state) writeConfig(env Env) error {
