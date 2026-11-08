@@ -118,16 +118,20 @@ function needsAttention(c) {
 }
 
 function refreshSummaries(containers) {
-  const running = containers.filter((c) => c.state === "running").length;
-  const runTile = document.querySelector('[data-tile="running"]');
-  if (runTile) runTile.innerHTML = `${running}<small>/ ${containers.length}</small>`;
-  const attTile = document.querySelector('[data-tile="attention"]');
-  if (attTile) attTile.textContent = containers.filter(needsAttention).length;
+  const set = (key, n) => {
+    const el = document.querySelector(`[data-count="${key}"]`);
+    if (!el) return;
+    el.textContent = n;
+    if (key === "attention") el.classList.toggle("nav-count-bad", n > 0);
+  };
+  set("total", containers.length);
+  set("attention", containers.filter(needsAttention).length);
+  set("stopped", containers.filter((c) => c.state !== "running").length);
 
-  for (const card of document.querySelectorAll("section.stack.card")) {
-    const pill = card.querySelector(".stack-pill");
+  for (const group of document.querySelectorAll("tbody.stack")) {
+    const pill = group.querySelector(".stack-pill");
     if (!pill) continue;
-    const rows = [...card.querySelectorAll("tr.container")];
+    const rows = [...group.querySelectorAll("tr.container")];
     const up = rows.filter((r) => r.classList.contains("state-running")).length;
     const sick = rows.filter((r) => r.classList.contains("is-unhealthy")).length;
     const looping = rows.filter((r) => r.classList.contains("is-crashloop")).length;
@@ -258,41 +262,68 @@ if (logView) {
   connect();
 }
 
-// Side navigation drawer on narrow screens.
+// Side navigation drawer on narrow screens: Escape or a click outside closes it, and
+// focus goes back to the toggle.
 const navToggle = document.querySelector(".nav-toggle");
-navToggle?.addEventListener("click", () => {
-  const open = document.body.classList.toggle("nav-open");
-  navToggle.setAttribute("aria-expanded", String(open));
+const scrim = document.querySelector(".scrim");
+const appbar = document.querySelector(".appbar");
+const syncAppbarHeight = () => {
+  if (appbar) document.documentElement.style.setProperty("--appbar", `${appbar.offsetHeight}px`);
+};
+syncAppbarHeight();
+window.addEventListener("resize", syncAppbarHeight);
+function setNav(open, { focusToggle = false } = {}) {
+  document.body.classList.toggle("nav-open", open);
+  navToggle?.setAttribute("aria-expanded", String(open));
+  if (scrim) scrim.hidden = !open;
+  if (open) document.querySelector("#sidenav .nav-item")?.focus();
+  else if (focusToggle) navToggle?.focus();
+}
+navToggle?.addEventListener("click", () => setNav(!document.body.classList.contains("nav-open")));
+scrim?.addEventListener("click", () => setNav(false, { focusToggle: true }));
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.body.classList.contains("nav-open")) setNav(false, { focusToggle: true });
 });
 
-// Search: narrow the container rows by name or image; hide cards left empty.
+// Search: on the dashboard it narrows the table live (by container name, image or
+// Stack); from other pages, or without JS, it submits to /?q=.
 const search = document.querySelector(".global-search");
-if (search && !search.disabled) {
+const table = document.querySelector("table.containers");
+if (search && table) {
+  const status = document.querySelector(".no-match");
   const apply = () => {
     const q = search.value.trim().toLowerCase();
     let shown = 0;
-    for (const row of document.querySelectorAll("tr.container")) {
-      const hit = !q || row.dataset.name.toLowerCase().includes(q) || row.dataset.image.toLowerCase().includes(q);
-      row.hidden = !hit;
-      if (hit) shown++;
+    for (const group of document.querySelectorAll("tbody.stack")) {
+      const stackHit = q && (group.dataset.stack || "").toLowerCase().includes(q);
+      let visible = 0;
+      for (const row of group.querySelectorAll("tr.container")) {
+        const hit = !q || stackHit || row.dataset.name.toLowerCase().includes(q) || row.dataset.image.toLowerCase().includes(q);
+        row.hidden = !hit;
+        if (hit) visible++;
+      }
+      group.hidden = q !== "" && !stackHit && visible === 0;
+      shown += visible;
     }
-    for (const card of document.querySelectorAll("section.stack.card")) {
-      const rows = card.querySelectorAll("tr.container");
-      card.hidden = q !== "" && (rows.length === 0 || [...rows].every((r) => r.hidden));
+    for (const row of document.querySelectorAll("#stacks .stack-row")) {
+      row.hidden = q !== "" && !row.dataset.stack.toLowerCase().includes(q);
     }
-    for (const sel of [".charts", ".status-card", "#attention", ".inactive", "#sync"]) {
+    for (const sel of [".charts", "#attention", "#sync"]) {
       const el = document.querySelector(sel);
       if (el) el.hidden = q !== "";
     }
-    const none = document.querySelector(".no-match");
-    if (none) none.hidden = !q || shown > 0;
+    if (status) {
+      status.hidden = !q;
+      status.textContent = shown ? `${shown} container${shown === 1 ? "" : "s"} match “${search.value.trim()}”.` : "No containers match your search.";
+    }
   };
+  search.form?.addEventListener("submit", (e) => { e.preventDefault(); apply(); });
   search.addEventListener("input", apply);
   search.addEventListener("keydown", (e) => { if (e.key === "Escape") { search.value = ""; apply(); } });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "/" && document.activeElement === document.body) { e.preventDefault(); search.focus(); }
-  });
 }
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && search && document.activeElement === document.body) { e.preventDefault(); search.focus(); }
+});
 
 // Host CPU and memory charts, drawn as SVG from /api/metrics.
 const charts = [...document.querySelectorAll(".chart[data-series]")];
@@ -304,7 +335,7 @@ if (charts.length) {
     return n;
   };
   const fmtBytes = (b) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} Gi` : `${Math.round(b / (1 << 20))} Mi`;
-  const fmt = (v, unit) => unit === "bytes" ? fmtBytes(v) : v.toFixed(v < 1 ? 3 : 2);
+  const fmt = (v, unit) => unit === "bytes" ? fmtBytes(v) : (v === 0 ? "0" : v < 0.1 ? v.toFixed(2) : v.toFixed(v < 10 ? 2 : 1));
   const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   // A "nice" top for the y axis: 1, 2 or 5 × 10^n, above the peak.
   const niceTop = (v, unit) => {
@@ -317,7 +348,9 @@ if (charts.length) {
   function draw(box, points) {
     if (points.length < 2) return;
     const unit = box.dataset.unit;
-    const W = box.clientWidth || 600, H = box.clientHeight || 220;
+    const cs = getComputedStyle(box);
+    const W = (box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)) || 600;
+    const H = (box.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) || 200;
     const L = 56, R = 12, T = 12, B = 30;
     const iw = W - L - R, ih = H - T - B;
     const t0 = new Date(points[0].t).getTime(), t1 = new Date(points[points.length - 1].t).getTime();
@@ -325,7 +358,7 @@ if (charts.length) {
     const x = (t) => L + ((new Date(t).getTime() - t0) / Math.max(1, t1 - t0)) * iw;
     const y = (v) => T + ih - (v / top) * ih;
 
-    const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none" });
+    const svg = el("svg", { viewBox: `0 0 ${W} ${H}` });
     const axis = el("g", { class: "axis" });
     for (let i = 0; i <= 4; i++) {
       const v = (top / 4) * i, yy = y(v);
@@ -348,7 +381,9 @@ if (charts.length) {
     box.replaceChildren(svg);
 
     const now = document.querySelector(`[data-now="${box.dataset.series}"]`);
-    if (now) now.textContent = `${fmt(points[points.length - 1].v, unit)}${unit === "bytes" ? "B" : " cores"} now`;
+    const latest = `${fmt(points[points.length - 1].v, unit)}${unit === "bytes" ? "B" : " cores"}`;
+    if (now) now.textContent = `${latest} now`;
+    box.setAttribute("aria-label", `${box.dataset.series === "cpu" ? "CPU" : "Memory"} usage over the last ${Math.max(1, Math.round((t1 - t0) / 60000))} minutes, now ${latest}`);
   }
 
   async function refreshCharts() {

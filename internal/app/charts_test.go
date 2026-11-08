@@ -59,12 +59,12 @@ func TestShellHasSearchBreadcrumbsAndNavigation(t *testing.T) {
 	h := startDashboard(t)
 	h.api.SetContainers(dockertest.Container{ID: "a", Name: "web", Image: "nginx:1.27", State: "running"})
 	body := mustGet(h)
-	assertContains(t, body, `class="global-search"`, `aria-current="page">Overview`, `class="nav-item is-active" href="/"`,
-		`href="/history"`, `data-name="web" data-image="nginx:1.27"`, "CPU usage", "Memory usage", "Workload status", "si-ok")
+	assertContains(t, body, `class="global-search"`, `aria-current="page">Overview`, `class="nav-item nav-top is-active" href="/"`,
+		`href="/history"`, `data-name="web" data-image="nginx:1.27"`, "CPU usage", "Memory usage", "si-ok", `id="containers"`)
 
 	_, hist := h.get("/history")
-	assertContains(t, hist, `class="crumb crumb-home" href="/" aria-label="Back to the dashboard">Overview</a>`,
-		`aria-current="page">Apply history`, `class="nav-item is-active" href="/history"`, `global-search" placeholder="Search containers" autocomplete="off" spellcheck="false" disabled`)
+	assertContains(t, hist, `class="crumb crumb-home" href="/">Overview</a>`,
+		`aria-current="page">Apply history`, `class="nav-item is-active" href="/history"`, `name="q"`)
 }
 
 func TestStatusIconsFollowTheContainerState(t *testing.T) {
@@ -82,4 +82,46 @@ func TestStatusIconsFollowTheContainerState(t *testing.T) {
 			t.Errorf("%s should show %s", id, icon)
 		}
 	}
+}
+
+func TestSearchNarrowsTheDashboardServerSide(t *testing.T) {
+	e := newSyncEnv(t, merge(compose("media"), compose("proxy")))
+	e.deployed("media", "proxy")
+	selectAll(e, "media", "proxy")
+	e.api.SetContainers(
+		dockertest.Container{ID: "m1", Name: "media-jellyfin-1", Image: "jellyfin/jellyfin:10", State: "running", Labels: composeLabel("media")},
+		dockertest.Container{ID: "m2", Name: "media-db-1", Image: "postgres:16", State: "running", Labels: composeLabel("media")},
+		dockertest.Container{ID: "p1", Name: "proxy-traefik-1", Image: "traefik:v3", State: "running", Labels: composeLabel("proxy")},
+		dockertest.Container{ID: "o1", Name: "adhoc", Image: "postgres:15", State: "running"},
+	)
+	for q, want := range map[string]string{
+		"postgres": "media-db-1,adhoc",
+		"proxy":    "proxy-traefik-1", // a Stack name matches all its containers
+		"JELLY":    "media-jellyfin-1",
+	} {
+		_, body := e.get("/?q=" + q)
+		if got := strings.Join(names(body), ","); got != want {
+			t.Errorf("q=%s shows %q, want %q", q, got, want)
+		}
+		assertContains(t, body, "Showing containers and Stacks matching", `value="`+q+`"`, "Show everything")
+	}
+}
+
+func TestNavigationSectionsAreLinks(t *testing.T) {
+	body := mustGet(startDashboard(t))
+	assertContains(t, body, `class="nav-item nav-top" href="/#containers">Containers`, `class="nav-item nav-top" href="/#stacks">Deployment`)
+}
+
+func TestRobotoIsServedFromTheBinary(t *testing.T) {
+	h := startDashboard(t)
+	resp, err := http.Get(h.srv.URL + "/static/fonts/roboto-latin-400-normal.woff2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "font/woff2" {
+		t.Errorf("status %d, type %q", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	_, css := h.get("/static/style.css")
+	assertContains(t, css, "@font-face", "roboto-latin-500-normal.woff2", "Roboto Mono")
 }

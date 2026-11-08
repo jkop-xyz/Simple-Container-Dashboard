@@ -68,7 +68,7 @@ func TestUnhealthyAndMissingStacksAreFlaggedAfterApply(t *testing.T) {
 	}
 	_, hist := e.get("/history")
 	assertContains(t, historyEntries(hist)[0], "applied · 2 unhealthy after", `after-unhealthy">unhealthy<`, `after-not running">not running<`)
-	assertContains(t, mustGet(e.harness), "last-apply chip-warn", "✓ · 2 unhealthy after")
+	assertContains(t, mustGet(e.harness), "last-apply chip-warn", "2 unhealthy after")
 }
 
 func TestARestartDuringTheWindowIsFlagged(t *testing.T) {

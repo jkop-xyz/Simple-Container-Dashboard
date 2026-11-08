@@ -53,10 +53,10 @@ func TestTilesLinkToFiltersAndCountTheWholeHost(t *testing.T) {
 	e := filterEnv(t)
 	_, body := e.get("/?filter=unmanaged")
 	// The side navigation keeps describing the whole host while a filter is active.
-	assertContains(t, body, `href="/?filter=attention"`, `<span class="nav-count nav-count-bad">1</span>`,
+	assertContains(t, body, `href="/?filter=attention"`, `<span class="nav-count nav-count-bad" data-count="attention">1</span>`,
 		`href="/?filter=stopped"`, `href="/?filter=selected"`)
 	_, overview := e.get("/")
-	assertContains(t, overview, `data-tile="running">3<small>/ 4</small>`, `data-tile="attention">1<`, "1 not running · show")
+	assertContains(t, overview, `data-count="total">4<`, `data-count="stopped">1<`, "3 of 4 running")
 	_, all := e.get("/")
 	if strings.Contains(all, "Showing only") {
 		t.Error("no filter, but the filter bar shows")

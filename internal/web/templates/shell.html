@@ -1,33 +1,43 @@
-{{/* Shared page chrome: app bar, blue toolbar with breadcrumbs, side navigation. */}}
+{{/* Shared page chrome: app bar, blue toolbar with breadcrumbs, side navigation, icons. */}}
 
 {{define "head"}}
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23326ce5'/%3E%3Cpath d='M9 10h14v4H9zM9 18h9v4H9z' fill='white'/%3E%3C/svg%3E">
+<link rel="preload" href="/static/fonts/roboto-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/style.css">
 {{end}}
+
+{{/* Material icons as inline SVG, so there are no font glyphs mixed in. */}}
+{{define "i-check"}}<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" fill="currentColor"/></svg>{{end}}
+{{define "i-error"}}<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-2h2zm0-4h-2V7h2z" fill="currentColor"/></svg>{{end}}
+{{define "i-warn"}}<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M1 21h22L12 2zm12-3h-2v-2h2zm0-4h-2v-4h2z" fill="currentColor"/></svg>{{end}}
+{{define "i-info"}}<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2zm0-8h-2V7h2z" fill="currentColor"/></svg>{{end}}
+{{define "i-open"}}<svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2zM14 3v2h3.6l-9.8 9.8 1.4 1.4L19 6.4V10h2V3z" fill="currentColor"/></svg>{{end}}
+{{define "i-chevron"}}<svg class="i crumb-sep" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6 8.6 7.4 13.2 12l-4.6 4.6L10 18l6-6z" fill="currentColor"/></svg>{{end}}
+{{define "i-branch"}}<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3a3 3 0 0 0-1 5.8v6.4A3 3 0 1 0 7 15.2V13c.8.6 1.8 1 3 1h4a3 3 0 0 0 3-3V8.8A3 3 0 1 0 15 8.8V11a1 1 0 0 1-1 1h-4a3 3 0 0 1-3-3V8.8A3 3 0 0 0 6 3z" fill="currentColor"/></svg>{{end}}
+{{define "i-logs"}}<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v2H3zm0 4h18v2H3zm0 4h12v2H3zm0 4h12v2H3z" fill="currentColor"/></svg>{{end}}
 
 {{define "logo"}}<svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="currentColor"/><path d="M9 10h14v4H9zM9 18h9v4H9z" fill="#fff"/></svg>{{end}}
 
 {{define "brand"}}<a class="brand" href="/" aria-label="scd: back to the dashboard">{{template "logo"}}<span class="brand-text"><span class="brand-name">scd</span><span class="brand-sub">Simple Container Dashboard</span></span></a>{{end}}
 
-{{/* shell-start: .Hostname, .Page (overview|attention|stopped|selected|unmanaged|history|logs),
-     .Crumb (current page title), .Parent/.ParentHref (optional middle crumb), .Index (dashboard data or nil) */}}
+{{/* shell-start: .Hostname, .Page, .Crumb, .Parent/.ParentHref (optional), .Index (dashboard data or nil), .Q (search text) */}}
 {{define "shell-start"}}
+<a class="skip-link" href="#main">Skip to content</a>
 <header class="appbar">
-  <button type="button" class="icon-btn nav-toggle" aria-label="Toggle navigation" aria-controls="sidenav" aria-expanded="false">
+  <button type="button" class="icon-btn nav-toggle" aria-label="Navigation" aria-controls="sidenav" aria-expanded="false">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z" fill="currentColor"/></svg>
   </button>
   {{template "brand"}}
-  <label class="search">
+  <form class="search" action="/" method="get" role="search">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 14 15.5l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z" fill="currentColor"/></svg>
-    <span class="visually-hidden">Search containers</span>
-    <input type="search" class="global-search" placeholder="Search containers" autocomplete="off" spellcheck="false"{{if not .Index}} disabled title="Search works on the dashboard"{{end}}>
-  </label>
+    <label class="visually-hidden" for="global-search">Search containers and Stacks</label>
+    <input id="global-search" type="search" name="q" value="{{.Q}}" class="global-search" placeholder="Search containers and Stacks" autocomplete="off" spellcheck="false">
+  </form>
   {{with .Index}}{{if .Sync}}<div class="appbar-actions">
     <form method="post" action="/sync"><button class="sync-button btn btn-text"{{if .Sync.Running}} disabled{{end}}>
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4V1L8 5l4 4V6a6 6 0 0 1 5.7 7.9l1.5 1.5A8 8 0 0 0 12 4zm0 14a6 6 0 0 1-5.7-7.9L4.8 8.6A8 8 0 0 0 12 20v3l4-4-4-4v3z" fill="currentColor"/></svg>
       Sync</button></form>
     <form method="post" action="/apply"><button class="apply-button"{{if not .Sync.CanApply}} disabled{{end}} data-variant="primary">
-      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" fill="currentColor"/></svg>
       Apply{{with .Sync.Plan}}{{if and $.Index.Sync.CanApply .Changes}} <span class="count">{{.Changes}}</span>{{end}}{{end}}</button></form>
   </div>{{end}}{{end}}
 </header>
@@ -35,18 +45,19 @@
 <div class="toolbar">
   <nav class="crumbs" aria-label="Breadcrumb">
     {{if eq .Page "overview"}}<span class="crumb crumb-current" aria-current="page">Overview</span>
-    {{else}}<a class="crumb crumb-home" href="/" aria-label="Back to the dashboard">Overview</a>
-      {{with .Parent}}<span class="crumb-sep" aria-hidden="true">›</span>{{if $.ParentHref}}<a class="crumb" href="{{$.ParentHref}}">{{.}}</a>{{else}}<span class="crumb">{{.}}</span>{{end}}{{end}}
-      <span class="crumb-sep" aria-hidden="true">›</span><span class="crumb crumb-current" aria-current="page">{{.Crumb}}</span>{{end}}
+    {{else}}<a class="crumb crumb-home" href="/">Overview</a>
+      {{with .Parent}}{{template "i-chevron"}}{{if $.ParentHref}}<a class="crumb" href="{{$.ParentHref}}">{{.}}</a>{{else}}<span class="crumb">{{.}}</span>{{end}}{{end}}
+      {{template "i-chevron"}}<span class="crumb crumb-current" aria-current="page">{{.Crumb}}</span>{{end}}
   </nav>
-  {{with .Index}}<div class="chips">
-    {{if .RepoName}}<span class="chip chip-repo" title="Deployment Repo"><span class="repo">{{.RepoName}}</span>{{if .Commit}}<code class="commit" title="{{.Commit}}">{{short .Commit}}</code>{{end}}</span>{{end}}
-    {{with .LastApply}}<a class="chip last-apply {{if not .OK}}chip-bad{{else if .BadAfter}}chip-warn{{else}}chip-ok{{end}}" href="/history" title="{{when .Finished}}">
-      <span>last Apply: <span>{{ago .Finished}}</span></span>
-      {{if not .OK}}<span class="bad">✗ {{if .Error}}stopped{{else}}{{.Failures}} failed{{end}}</span>{{else if .BadAfter}}<span class="warn-text">✓ · {{.BadAfter}} unhealthy after</span>{{else if eq .HealthCheck "checking"}}<span class="ok">✓</span> <span>checking health…</span>{{else}}<span class="ok">✓</span>{{end}}</a>{{end}}
-    {{with .AutoUpdate}}<span class="chip auto-update {{if eq . "active"}}chip-ok{{else}}chip-warn{{end}}">{{"podman-auto-update.timer"}}: <b class="timer-{{.}}">{{.}}</b></span>{{end}}
-    {{with .NewRelease}}<a class="chip chip-accent new-release" href="https://github.com/jkop-xyz/Simple-Container-Dashboard/releases/tag/{{.}}" target="_blank" rel="noopener">new version {{.}} available</a>{{end}}
-  </div>{{end}}
+  {{with .Index}}<ul class="meta">
+    {{if .RepoName}}<li class="chip-repo" title="Deployment Repo">{{template "i-branch"}}<span class="repo">{{.RepoName}}</span>{{if .Commit}} <code class="commit" title="{{.Commit}}">{{short .Commit}}</code>{{end}}</li>{{end}}
+    {{with .LastApply}}<li><a class="last-apply {{if not .OK}}chip-bad{{else if .BadAfter}}chip-warn{{else}}chip-ok{{end}}" href="/history" title="{{when .Finished}}">
+      {{if not .OK}}{{template "i-error"}}{{else if .BadAfter}}{{template "i-warn"}}{{else}}{{template "i-check"}}{{end}}
+      <span>last Apply {{ago .Finished}} ·
+      {{if not .OK}}<span class="bad">{{if .Error}}stopped{{else}}{{.Failures}} failed{{end}}</span>{{else if .BadAfter}}<span class="warn-text">{{.BadAfter}} unhealthy after</span>{{else if eq .HealthCheck "checking"}}<span class="ok">succeeded</span> · checking health…{{else}}<span class="ok">succeeded</span>{{end}}</span></a></li>{{end}}
+    {{with .AutoUpdate}}<li class="auto-update {{if eq . "active"}}chip-ok{{else}}chip-warn{{end}}">{{if eq . "active"}}{{template "i-check"}}{{else}}{{template "i-warn"}}{{end}}{{"podman-auto-update.timer"}}: <b class="timer-{{.}}">{{.}}</b></li>{{end}}
+    {{with .NewRelease}}<li><a class="new-release" href="https://github.com/jkop-xyz/Simple-Container-Dashboard/releases/tag/{{.}}" target="_blank" rel="noopener">{{template "i-info"}}new version {{.}} available</a></li>{{end}}
+  </ul>{{end}}
 </div>
 
 <div class="layout">
@@ -56,29 +67,30 @@
     <span class="hostname">{{.Hostname}}</span>
   </div>
   <ul class="nav-list">
-    <li><a class="nav-item{{if eq .Page "overview"}} is-active{{end}}" href="/"{{if eq .Page "overview"}} aria-current="page"{{end}}>Overview</a></li>
-  </ul>
-  <h2 class="nav-heading">Containers</h2>
-  <ul class="nav-list">
-    {{template "nav-filter" (dict "Name" "attention" "Label" "Needs attention" "Page" .Page "Count" (ifelse .Index (navCount .Index "attention") -1) "Bad" true)}}
-    {{template "nav-filter" (dict "Name" "stopped" "Label" "Not running" "Page" .Page "Count" (ifelse .Index (navCount .Index "stopped") -1) "Bad" false)}}
-    {{template "nav-filter" (dict "Name" "unmanaged" "Label" "Unmanaged" "Page" .Page "Count" (ifelse .Index (navCount .Index "unmanaged") -1) "Bad" false)}}
-  </ul>
-  <h2 class="nav-heading">Deployment</h2>
-  <ul class="nav-list">
-    {{template "nav-filter" (dict "Name" "selected" "Label" "Selected Stacks" "Page" .Page "Count" (ifelse .Index (navCount .Index "selected") -1) "Bad" false)}}
-    <li><a class="nav-item{{if eq .Page "history"}} is-active{{end}}" href="/history"{{if eq .Page "history"}} aria-current="page"{{end}}>Apply history</a></li>
+    <li><a class="nav-item nav-top{{if eq .Page "overview"}} is-active{{end}}" href="/"{{if eq .Page "overview"}} aria-current="page"{{end}}>Overview</a></li>
+    <li><a class="nav-item nav-top" href="/#containers">Containers{{with .Index}}<span class="nav-count" data-count="total">{{.Overview.Total}}</span>{{end}}</a>
+      <ul class="nav-list nav-sub">
+        {{template "nav-filter" (dict "Name" "attention" "Label" "Needs attention" "Page" .Page "Count" (navCount .Index "attention") "Bad" true)}}
+        {{template "nav-filter" (dict "Name" "stopped" "Label" "Not running" "Page" .Page "Count" (navCount .Index "stopped") "Bad" false)}}
+        {{template "nav-filter" (dict "Name" "unmanaged" "Label" "Unmanaged" "Page" .Page "Count" (navCount .Index "unmanaged") "Bad" false)}}
+      </ul></li>
+    <li><a class="nav-item nav-top" href="/#stacks">Deployment</a>
+      <ul class="nav-list nav-sub">
+        {{template "nav-filter" (dict "Name" "selected" "Label" "Selected Stacks" "Page" .Page "Count" (navCount .Index "selected") "Bad" false)}}
+        <li><a class="nav-item{{if eq .Page "history"}} is-active{{end}}" href="/history"{{if eq .Page "history"}} aria-current="page"{{end}}>Apply history</a></li>
+      </ul></li>
   </ul>
 </nav>
-<main class="page">
+<main id="main" class="page" tabindex="-1">
 {{end}}
 
 {{define "nav-filter"}}<li><a class="nav-item{{if eq .Page .Name}} is-active{{end}}" href="/?filter={{.Name}}"{{if eq .Page .Name}} aria-current="page"{{end}}>
-  <span>{{.Label}}</span>{{if ge .Count 0}}<span class="nav-count{{if and .Bad (gt .Count 0)}} nav-count-bad{{end}}">{{.Count}}</span>{{end}}</a></li>{{end}}
+  <span>{{.Label}}</span>{{if ge .Count 0}}<span class="nav-count{{if and .Bad (gt .Count 0)}} nav-count-bad{{end}}" data-count="{{.Name}}">{{.Count}}</span>{{end}}</a></li>{{end}}
 
 {{define "shell-end"}}
 </main>
 </div>
+<div class="scrim" hidden></div>
 <script src="/static/app.js"></script>
 {{end}}
 
@@ -92,60 +104,49 @@
 </span>{{end}}
 
 {{define "switch"}}<form class="select" method="post" action="/stacks/{{.Stack.Name}}/selection">
-  <label class="switch" title="Run {{.Stack.Name}} on this host">
-    <input type="checkbox" name="selected" value="true"{{if .Selected}} checked{{end}} aria-label="Run {{.Stack.Name}} on this host" data-stack="{{.Stack.Name}}">
+  <label class="switch">
+    <input type="checkbox" name="selected" value="true"{{if .Selected}} checked{{end}} data-stack="{{.Stack.Name}}">
     <span class="switch-track" aria-hidden="true"></span>
+    <span class="switch-label">Run<span class="visually-hidden"> {{.Stack.Name}}</span> here</span>
   </label>
   <noscript><button class="btn btn-text btn-sm">Save</button></noscript>
 </form>{{end}}
 
-{{define "tile"}}{{if .Href}}<a class="tile{{if .Bad}} tile-bad{{end}}{{if .Active}} is-active{{end}}" href="{{.Href}}" data-tile-box="{{.Key}}"{{if .Active}} aria-current="true"{{end}}>{{else}}<div class="tile" data-tile-box="{{.Key}}">{{end}}
-  <span class="tile-value" data-tile="{{.Key}}">{{.Value}}{{if ge .Of 0}}<small>/ {{.Of}}</small>{{end}}</span>
-  <span class="tile-label">{{.Label}}</span>
-  <span class="tile-sub">{{.Sub}}</span>
-{{if .Href}}</a>{{else}}</div>{{end}}{{end}}
-
-{{define "containers"}}
-<div class="table-wrap">
-<table class="containers grid">
-  <colgroup><col class="c-name"><col class="c-status"><col class="c-restarts"><col class="c-cpu"><col class="c-mem"><col class="c-ports"><col class="c-act"></colgroup>
-  <thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col" class="num">Restarts</th><th scope="col">CPU</th><th scope="col">Memory</th><th scope="col">Ports</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
-  <tbody>
-  {{$host := .Host}}{{$sparks := .Sparks}}{{$maxMem := .MaxMem}}
-  {{range .Rows}}
-    <tr class="container state-{{.State}} si-{{sicon .}}{{if eq .Health "unhealthy"}} is-unhealthy{{end}}{{if .CrashLooping}} is-crashloop{{end}}" data-id="{{.ID}}" id="c-{{.ID}}" data-name="{{.Name}}" data-image="{{.Image}}">
+{{/* One container row; .C is the container, .Host .Sparks .MaxMem .Stack come from the table. */}}
+{{define "container-row"}}{{$c := .C}}
+    <tr class="container state-{{$c.State}} si-{{sicon $c}}{{if eq $c.Health "unhealthy"}} is-unhealthy{{end}}{{if $c.CrashLooping}} is-crashloop{{end}}" data-id="{{$c.ID}}" id="c-{{$c.ID}}" data-name="{{$c.Name}}" data-image="{{$c.Image}}" data-stack="{{.Stack}}">
       <td>
-        <div class="cname">{{template "status-icons"}}<a class="name-link" href="/containers/{{.ID}}/logs" title="Logs for {{.Name}}"><span class="name">{{.Name}}</span></a></div>
-        <div class="image mono" title="{{.Image}}">{{.Image}}</div>
+        <div class="cname">{{template "status-icons"}}<a class="name-link" href="/containers/{{$c.ID}}/logs" title="Logs for {{$c.Name}}"><span class="name">{{$c.Name}}</span></a></div>
+        <div class="image mono" title="{{$c.Image}}">{{$c.Image}}</div>
       </td>
       <td>
         <div class="badges">
-          <span class="state">{{.State}}</span>
-          <span class="health health-{{.Health}}">{{health .Health}}</span>
-          <span class="crashloop-badge"{{if not .CrashLooping}} hidden{{end}}>crash-looping</span>
+          <span class="state">{{$c.State}}</span>
+          <span class="health health-{{$c.Health}}">{{health $c.Health}}</span>
+          <span class="crashloop-badge"{{if not $c.CrashLooping}} hidden{{end}}>crash-looping</span>
         </div>
-        <div class="status">{{.Status}}</div>
+        <div class="status">{{$c.Status}}</div>
       </td>
-      <td class="num"><span class="restarts-badge{{if not .RestartCount}} is-zero{{end}}" title="restarts"><span class="restarts">{{.RestartCount}}</span></span></td>
+      <td class="num col-restarts"><span class="restarts-badge{{if not $c.RestartCount}} is-zero{{end}}" title="restarts"><span class="restarts">{{$c.RestartCount}}</span></span></td>
       <td>
         <div class="metric">
-          <svg class="spark" viewBox="0 0 60 18" preserveAspectRatio="none" aria-hidden="true"><path class="spark-fill {{load .}}" d="{{index $sparks .ID}}"/><line x1="0" y1="17.5" x2="60" y2="17.5"/></svg>
-          <span class="cpu num">{{cpu .}}</span>
-          <span class="bar" hidden aria-hidden="true"><span class="bar-fill {{load .}}" style="width: {{cpuBar .}}%"></span></span>
+          <svg class="spark" viewBox="0 0 60 18" preserveAspectRatio="none" aria-hidden="true"><path class="spark-fill {{load $c}}" d="{{index .Sparks $c.ID}}"/><line x1="0" y1="17.5" x2="60" y2="17.5"/></svg>
+          <span class="cpu num">{{cpu $c}}</span>
+          <span class="bar" hidden aria-hidden="true"><span class="bar-fill {{load $c}}" style="width: {{cpuBar $c}}%"></span></span>
         </div>
       </td>
       <td>
         <div class="metric">
-          <span class="membar" aria-hidden="true"><span class="membar-fill" style="width: {{memBar .Memory $maxMem}}%"></span></span>
-          <span class="mem num">{{mem .}}</span>
+          <span class="membar" aria-hidden="true"><span class="membar-fill" style="width: {{memBar $c.Memory .MaxMem}}%"></span></span>
+          <span class="mem num">{{mem $c}}</span>
         </div>
       </td>
-      <td class="ports">{{if not (ports .Container $host)}}<span class="faint">—</span>{{end}}{{range ports .Container $host}}{{if .URL}}<a class="port" href="{{.URL}}" target="_blank" rel="noopener" aria-label="Open port {{.Port}} in a new tab">{{.Port}} ↗</a>{{else}}<span class="port text">{{.Label}}</span>{{end}} {{end}}</td>
-      <td class="actions-cell"><a class="icon-btn logs-link" href="/containers/{{.ID}}/logs" aria-label="Logs for {{.Name}}" title="Logs">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v2H3zm0 4h18v2H3zm0 4h12v2H3zm0 4h12v2H3z" fill="currentColor"/></svg></a></td>
-    </tr>
-  {{end}}
-  </tbody>
-</table>
-</div>
-{{end}}
+      <td class="ports col-ports">{{if not (ports $c.Container .Host)}}<span class="faint">—</span>{{end}}{{range ports $c.Container .Host}}{{if .URL}}<a class="port" href="{{.URL}}" target="_blank" rel="noopener" aria-label="Open port {{.Port}} in a new tab">{{.Port}}{{template "i-open"}}</a>{{else}}<span class="port text">{{.Label}}</span>{{end}} {{end}}</td>
+      <td class="actions-cell"><a class="icon-btn logs-link" href="/containers/{{$c.ID}}/logs" aria-label="Logs for {{$c.Name}}" title="Logs">{{template "i-logs"}}</a></td>
+    </tr>{{end}}
+
+{{/* An Apply's commit range: "at abc1234" when it didn't move, else "abc1234 → def5678". */}}
+{{define "range"}}{{if eq .From .To}}<span class="range">at <code title="{{.To}}">{{short .To}}</code></span>{{else}}<span class="range"><code title="{{.From}}">{{short .From}}</code><span class="arrow" aria-label="to">→</span><code title="{{.To}}">{{short .To}}</code></span>{{end}}{{end}}
+
+{{/* An Apply record's outcome, with an icon. */}}
+{{define "outcome"}}{{if not .OK}}<span class="outcome outcome-bad">{{template "i-error"}}{{if .Error}}stopped{{else}}{{.Failures}} failed{{end}}</span>{{else if .BadAfter}}<span class="outcome outcome-warn after-summary">{{template "i-warn"}}applied · {{.BadAfter}} unhealthy after</span>{{else}}<span class="outcome outcome-ok">{{template "i-check"}}succeeded</span>{{end}}{{end}}

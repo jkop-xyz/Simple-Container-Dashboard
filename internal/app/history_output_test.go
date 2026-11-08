@@ -30,7 +30,7 @@ func TestHistoryKeepsEachApplysOutputDurationAndCommits(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("output page: %d", code)
 	}
-	assertContains(t, out, "==&gt; deploy app", "Container app-web-1  Started", "==&gt; Apply finished", "Back to the dashboard")
+	assertContains(t, out, "==&gt; deploy app", "Container app-web-1  Started", "==&gt; Apply finished", `class="crumb crumb-home" href="/">Overview</a>`)
 	if _, err := os.Stat(filepath.Join(e.dataDir, "applies", id+".log")); err != nil {
 		t.Errorf("output file: %v", err)
 	}

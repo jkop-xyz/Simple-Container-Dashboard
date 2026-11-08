@@ -10,11 +10,11 @@
 {{template "shell-start" (dict "Hostname" .Hostname "Page" "logs" "Parent" "Logs" "Crumb" .C.Name)}}
   <div class="card log-card">
     <div class="card-head">
-      <span class="state-{{.C.State}} cname"><span class="dot" aria-hidden="true"></span><h1 class="container-name">{{.C.Name}}</h1></span>
+      <h1 class="container-name">{{.C.Name}}</h1>
       <span class="badges">
         <span class="state-{{.C.State}}"><span class="state">{{.C.State}}</span></span>
         {{with .D.Health}}<span class="health health-{{.}}">{{.}}</span>{{end}}
-        {{with .D.RestartCount}}<span class="restarts-badge" title="restarts">↻ {{.}}</span>{{end}}
+        {{with .D.RestartCount}}<span class="restarts-badge badge-bad">{{.}} restart{{if ne . 1}}s{{end}}</span>{{end}}
         {{with .ExitCode}}<span class="badge {{if eq . "0"}}badge-neutral{{else}}badge-bad{{end}} exit-code">exit code {{.}}</span>{{end}}
       </span>
       <span class="muted mono image">{{.C.Image}}</span>
@@ -24,7 +24,7 @@
         <button type="button" class="btn btn-secondary btn-sm log-pause" aria-pressed="false">Pause</button>
       </span>
     </div>
-    <div class="log-toolbar" role="toolbar" aria-label="Log view">
+    <div class="log-toolbar">
       <label class="field field-grow"><span class="visually-hidden">Filter lines</span>
         <input type="search" class="log-filter" placeholder="Filter lines…" autocomplete="off" spellcheck="false"></label>
       <span class="log-count muted" aria-live="polite"></span>
@@ -34,7 +34,7 @@
       <button type="button" class="btn btn-secondary btn-sm log-download">Download</button>
     </div>
     <p class="log-hint muted">Last <span class="log-tail">{{.Tail}}</span> lines{{if eq .C.State "running"}}, then live{{end}}.{{if .D.RestartCount}} The log spans restarts: pick more lines to see output from before the last one.{{end}}</p>
-    <pre class="terminal log" data-stream="/containers/{{.C.ID}}/logs/stream" data-name="{{.C.Name}}" aria-live="off"></pre>
+    <pre class="terminal log" tabindex="0" role="region" aria-label="Log output" data-stream="/containers/{{.C.ID}}/logs/stream" data-name="{{.C.Name}}" aria-live="off"></pre>
   </div>
   <noscript><div class="callout callout-bad error">The log view needs JavaScript.</div></noscript>
 {{template "shell-end"}}

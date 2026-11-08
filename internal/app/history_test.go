@@ -33,7 +33,7 @@ func TestHeaderAndHistoryShowASuccessfulApply(t *testing.T) {
 	e.sync()
 	_, page := e.apply()
 
-	assertContains(t, page, "last Apply", `href="/history"`, "just now", `class="ok">✓`)
+	assertContains(t, page, "last Apply", `href="/history"`, "just now", `class="ok">succeeded`)
 	_, hist := e.get("/history")
 	entries := historyEntries(hist)
 	if len(entries) != 1 {
@@ -49,7 +49,7 @@ func TestHistoryShowsFailuresWithTheirErrors(t *testing.T) {
 	e.sync()
 	_, page := e.apply()
 
-	assertContains(t, page, "last Apply", "✗ 1 failed")
+	assertContains(t, page, "last Apply", `class="bad">1 failed`)
 	_, hist := e.get("/history")
 	assertContains(t, historyEntries(hist)[0], "failed:", "manifest unknown", `data-stack="good"`)
 }
@@ -61,7 +61,7 @@ func TestHistoryRecordsAnApplyThatStoppedEarly(t *testing.T) {
 	os.WriteFile(filepath.Join(e.clone, "app", "compose.yaml"), []byte("edited\n"), 0o644)
 	_, page := e.apply()
 
-	assertContains(t, page, "✗ stopped")
+	assertContains(t, page, `class="bad">stopped`)
 	_, hist := e.get("/history")
 	assertContains(t, historyEntries(hist)[0], "Stopped before deploying anything", "has local changes")
 }

@@ -27,7 +27,7 @@ func TestProblemsAreListedUnderNeedsAttention(t *testing.T) {
 			t.Errorf("%s doesn't need attention", healthy)
 		}
 	}
-	assertContains(t, body, `href="/?filter=attention"`, `data-tile="attention">2<`)
+	assertContains(t, body, `href="/?filter=attention"`, `data-count="attention">2<`)
 	assertContains(t, splitSections(body)["ha"], "badge-bad", "1 unhealthy · 1/1 running")
 	assertContains(t, splitSections(body)["web"], "badge-ok", "1/1 running")
 	assertContains(t, body, `is-unhealthy" data-id="h1"`)

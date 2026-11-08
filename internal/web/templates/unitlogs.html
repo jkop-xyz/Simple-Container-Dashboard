@@ -17,7 +17,7 @@
         <button type="button" class="btn btn-secondary btn-sm log-pause" aria-pressed="false">Pause</button>
       </span>
     </div>
-    <div class="log-toolbar" role="toolbar" aria-label="Log view">
+    <div class="log-toolbar">
       <label class="field field-grow"><span class="visually-hidden">Filter lines</span>
         <input type="search" class="log-filter" placeholder="Filter lines…" autocomplete="off" spellcheck="false"></label>
       <span class="log-count muted" aria-live="polite"></span>
@@ -27,7 +27,7 @@
       <button type="button" class="btn btn-secondary btn-sm log-download">Download</button>
     </div>
     <p class="log-hint muted">Last <span class="log-tail">{{.Tail}}</span> journal lines, then live.</p>
-    <pre class="terminal log" data-stream="/units/{{.Unit}}/logs/stream" data-name="{{.Unit}}" aria-live="off"></pre>
+    <pre class="terminal log" tabindex="0" role="region" aria-label="Unit log output" data-stream="/units/{{.Unit}}/logs/stream" data-name="{{.Unit}}" aria-live="off"></pre>
   </div>
   <noscript><div class="callout callout-bad error">The log view needs JavaScript.</div></noscript>
 {{template "shell-end"}}

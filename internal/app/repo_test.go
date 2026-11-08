@@ -3,6 +3,7 @@ package app_test
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -166,16 +167,17 @@ func TestNonEmptyNonGitClonePathIsRefused(t *testing.T) {
 	}
 }
 
-// splitSections returns each Stack section's HTML keyed by its data-stack attribute
-// ("" is the Other group).
+// splitSections returns each Stack's HTML keyed by its data-stack attribute ("" is the
+// Other group): its group in the Containers table and its row in the Stacks card,
+// concatenated.
 func splitSections(body string) map[string]string {
 	out := map[string]string{}
-	parts := strings.Split(body, `<section class="stack`)
-	for _, p := range parts[1:] {
-		_, rest, _ := strings.Cut(p, `data-stack="`)
-		name, html, _ := strings.Cut(rest, `"`)
-		html, _, _ = strings.Cut(html, "</section>")
-		out[name] = html
+	re := regexp.MustCompile(`<(tbody|li|section) class="stack[^"]*" data-stack="([^"]*)"`)
+	for _, m := range re.FindAllStringSubmatchIndex(body, -1) {
+		tag, name := body[m[2]:m[3]], body[m[4]:m[5]]
+		rest := body[m[1]:]
+		html, _, _ := strings.Cut(rest, "</"+tag+">")
+		out[name] += html
 	}
 	return out
 }

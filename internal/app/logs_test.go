@@ -138,7 +138,7 @@ func TestLogsPage(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("status %d", code)
 	}
-	assertContains(t, page, "jellyfin", `data-stream="/containers/abc/logs/stream"`, `href="/"`, "Back to the dashboard",
+	assertContains(t, page, "jellyfin", `data-stream="/containers/abc/logs/stream"`, `href="/"`, `class="crumb crumb-home" href="/">Overview</a>`,
 		`Last <span class="log-tail">500</span> lines, then live`, `log-pause"`)
 
 	if code, _ := h.get("/containers/nope/logs"); code != http.StatusNotFound {
@@ -198,7 +198,7 @@ func TestLogsPageShowsTheContainersCondition(t *testing.T) {
 		dockertest.Container{ID: "dead", Name: "job", State: "exited", Status: "Exited (137) 5 minutes ago"},
 	)
 	_, sick := h.get("/containers/sick/logs")
-	assertContains(t, sick, "health-unhealthy", "↻ 4", "The log spans restarts", `class="log-filter"`, `class="log-lines"`,
+	assertContains(t, sick, "health-unhealthy", "4 restarts", "The log spans restarts", `class="log-filter"`, `class="log-lines"`,
 		`<option value="10000">`, `class="log-timestamps"`, `class="btn btn-secondary btn-sm log-download"`)
 	_, dead := h.get("/containers/dead/logs")
 	assertContains(t, dead, "exit code 137", "badge-bad exit-code")

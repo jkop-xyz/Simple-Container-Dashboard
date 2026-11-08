@@ -8,20 +8,19 @@
 </head>
 <body>
 {{template "shell-start" (dict "Hostname" .Hostname "Page" "history" "Crumb" "Apply history")}}
-  <h1 class="section-title page-title">Apply history <span class="muted">· last 20</span></h1>
+  <h1 class="visually-hidden">Apply history (last 20)</h1>
   <ol class="timeline">
   {{range .History}}
   <li>
   <section class="history-entry card{{if not .OK}} failed{{end}}">
     <div class="card-head">
-      <span class="tl-dot {{if .OK}}tl-ok{{else}}tl-bad{{end}}" aria-hidden="true"></span>
       <h2 class="entry-title"><time datetime="{{.Finished.Format "2006-01-02T15:04:05Z07:00"}}" title="{{when .Finished}}">{{rel .Finished}}</time></h2>
       <span class="muted took">took {{took .Duration}}</span>
-      <span class="range"><code title="{{.From}}">{{short .From}}</code><span class="arrow">→</span><code title="{{.To}}">{{short .To}}</code></span>
+      {{template "range" .}}
       <span class="card-head-end">
         {{if .ID}}<a class="btn btn-ghost btn-sm view-output" href="/history/{{.ID}}">View output</a>{{end}}
         {{if eq .HealthCheck "checking"}}<span class="badge badge-neutral health-check"><span class="spinner" aria-hidden="true"></span>checking health…</span>{{end}}
-        {{if .OK}}{{if .BadAfter}}<span class="badge badge-warn after-summary"><span class="ok">✓</span> applied · {{.BadAfter}} unhealthy after</span>{{else}}<span class="badge badge-ok"><span class="ok">✓</span> succeeded</span>{{end}}{{else}}<span class="badge badge-bad"><span class="bad">✗</span> {{if .Error}}stopped{{else}}{{.Failures}} failed{{end}}</span>{{end}}
+        {{template "outcome" .}}
       </span>
     </div>
     {{with .Error}}<div class="callout callout-bad error">Stopped before deploying anything: {{.}}</div>{{end}}

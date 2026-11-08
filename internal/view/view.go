@@ -311,3 +311,38 @@ func (d Dashboard) Filter(name string) Dashboard {
 	}
 	return d
 }
+
+// Search narrows the dashboard to containers whose name or image contains q, and to
+// every container of Stacks whose name contains q (case-insensitive).
+func (d Dashboard) Search(q string) Dashboard {
+	q = strings.ToLower(strings.TrimSpace(q))
+	if q == "" {
+		return d
+	}
+	hit := func(c Container) bool {
+		return strings.Contains(strings.ToLower(c.Name), q) || strings.Contains(strings.ToLower(c.Image), q)
+	}
+	var f Dashboard
+	for _, g := range d.Groups {
+		if strings.Contains(strings.ToLower(g.Stack.Name), q) {
+			f.Groups = append(f.Groups, g)
+			continue
+		}
+		var cs []Container
+		for _, c := range g.Containers {
+			if hit(c) {
+				cs = append(cs, c)
+			}
+		}
+		if len(cs) > 0 {
+			g.Containers = cs
+			f.Groups = append(f.Groups, g)
+		}
+	}
+	for _, c := range d.Other {
+		if hit(c) {
+			f.Other = append(f.Other, c)
+		}
+	}
+	return f
+}

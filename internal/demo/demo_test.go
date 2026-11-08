@@ -76,7 +76,7 @@ func TestDemoNeedsNothingAndExercisesTheWholeUI(t *testing.T) {
 	page := get(t, srv, "/")
 	contains(t, page, "Demo mode", "Simulate a push", "demo-host", "demo/homelab",
 		`data-stack="jellyfin"`, "jellyfin-server-1", "homeassistant-core-1", "unhealthy",
-		"Other", "scratch-shell", "adhoc-redis", "6379/tcp (local)", "8096 ↗", "last Apply")
+		"Other", "scratch-shell", "adhoc-redis", "6379/tcp (local)", ">8096<svg", "last Apply")
 	if strings.Contains(page, "missing tools") {
 		t.Error("demo shows missing tools")
 	}
@@ -115,5 +115,5 @@ func TestDemoLogsStream(t *testing.T) {
 	_, rest, _ := strings.Cut(page, `href="/containers/`)
 	id, _, _ := strings.Cut(rest, "/logs")
 	logs := get(t, srv, "/containers/"+id+"/logs")
-	contains(t, logs, "container-name", "Pause", "Back to the dashboard")
+	contains(t, logs, "container-name", "Pause", `class="crumb crumb-home" href="/">Overview</a>`)
 }

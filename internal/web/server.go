@@ -248,6 +248,8 @@ type indexData struct {
 	MaxMem uint64
 	// Counts are per-filter counts for the side navigation.
 	Counts map[string]int
+	// Q is the search text ("" = no search).
+	Q string
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
@@ -299,6 +301,10 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	if f := r.URL.Query().Get("filter"); view.Filters[f] != "" {
 		data.Filter, data.FilterLabel = f, view.Filters[f]
 		data.Dashboard = full.Filter(f)
+	}
+	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
+		data.Q = q
+		data.Dashboard = data.Dashboard.Search(q)
 	}
 	if s.deps.Units != nil {
 		s.addUnits(ctx, &data.Dashboard)
