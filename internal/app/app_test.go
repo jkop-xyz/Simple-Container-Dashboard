@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,91 +21,103 @@ var noHostEnv = &dockerapi.Env{
 	Exists: func(string) bool { return false },
 }
 
-func startDashboard(t *testing.T, api *dockertest.Server) *httptest.Server {
+// harness is one in-process dashboard plus its fakes.
+type harness struct {
+	t   *testing.T
+	api *dockertest.Server
+	app *app.App
+	srv *httptest.Server
+}
+
+// startDashboard starts the real dashboard against a fake runtime API. Pass a
+// customize func to adjust the options (e.g. set a Deployment Repo).
+func startDashboard(t *testing.T, customize ...func(*app.Options)) *harness {
 	t.Helper()
-	a, err := app.New(app.Options{
-		Config: config.Config{Runtime: config.Docker, Socket: api.Socket},
-		Env:    noHostEnv,
-		Runner: &runnertest.Fake{},
-	})
+	api := dockertest.New(t)
+	opts := app.Options{
+		Config:   config.Config{Runtime: config.Docker, Socket: api.Socket},
+		Env:      noHostEnv,
+		Runner:   &runnertest.Fake{},
+		Hostname: "testhost",
+	}
+	for _, c := range customize {
+		c(&opts)
+	}
+	a, err := app.New(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := a.Start(context.Background()); err != nil {
+		t.Logf("Start: %v", err)
+	}
 	srv := httptest.NewServer(a.Handler)
 	t.Cleanup(srv.Close)
-	return srv
+	return &harness{t: t, api: api, app: a, srv: srv}
 }
 
-func get(t *testing.T, url string) (int, string) {
-	t.Helper()
-	resp, err := http.Get(url)
+func (h *harness) get(path string) (int, string) {
+	h.t.Helper()
+	resp, err := http.Get(h.srv.URL + path)
 	if err != nil {
-		t.Fatal(err)
+		h.t.Fatal(err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, string(body)
 }
 
+func assertContains(t *testing.T, body string, wants ...string) {
+	t.Helper()
+	for _, w := range wants {
+		if !strings.Contains(body, w) {
+			t.Errorf("page missing %q", w)
+		}
+	}
+}
+
 func TestDashboardListsAllContainersIncludingStopped(t *testing.T) {
-	api := dockertest.New(t)
-	api.SetContainers(
+	h := startDashboard(t)
+	h.api.SetContainers(
 		dockertest.Container{ID: "a1", Name: "jellyfin", Image: "jellyfin/jellyfin:10", State: "running", Status: "Up 2 hours"},
 		dockertest.Container{ID: "b2", Name: "backup", Image: "restic:0.17", State: "exited", Status: "Exited (1) 3 hours ago"},
 	)
-	srv := startDashboard(t, api)
 
-	code, body := get(t, srv.URL+"/")
+	code, body := h.get("/")
 	if code != http.StatusOK {
 		t.Fatalf("status %d, body:\n%s", code, body)
 	}
-	for _, want := range []string{"jellyfin", "running", "Up 2 hours", "backup", "exited", "Exited (1) 3 hours ago"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("dashboard missing %q", want)
-		}
-	}
+	assertContains(t, body, "jellyfin", "running", "Up 2 hours", "backup", "exited", "Exited (1) 3 hours ago")
 	if strings.Index(body, "backup") > strings.Index(body, "jellyfin") {
 		t.Error("containers should be sorted by name")
 	}
 }
 
 func TestDashboardWithNoContainers(t *testing.T) {
-	api := dockertest.New(t)
-	srv := startDashboard(t, api)
-
-	_, body := get(t, srv.URL+"/")
-	if !strings.Contains(body, "No containers on this host") {
-		t.Errorf("expected empty-state message, got:\n%s", body)
-	}
+	_, body := startDashboard(t).get("/")
+	assertContains(t, body, "No containers on this host")
 }
 
 func TestDashboardReportsUnreachableRuntime(t *testing.T) {
-	a, err := app.New(app.Options{
-		Config: config.Config{Runtime: config.Docker, Socket: t.TempDir() + "/missing.sock"},
-		Env:    noHostEnv,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := httptest.NewServer(a.Handler)
-	defer srv.Close()
-
-	code, body := get(t, srv.URL+"/")
+	h := startDashboard(t, func(o *app.Options) { o.Config.Socket = t.TempDir() + "/missing.sock" })
+	code, body := h.get("/")
 	if code != http.StatusBadGateway {
 		t.Errorf("status %d, want %d", code, http.StatusBadGateway)
 	}
-	if !strings.Contains(body, "reach the container runtime") {
-		t.Errorf("expected runtime error message, got:\n%s", body)
-	}
+	assertContains(t, body, "reach the container runtime")
 }
 
 func TestDashboardServesEmbeddedAssets(t *testing.T) {
-	srv := startDashboard(t, dockertest.New(t))
+	h := startDashboard(t)
 	for _, path := range []string{"/static/app.js", "/static/style.css"} {
-		if code, _ := get(t, srv.URL+path); code != http.StatusOK {
+		if code, _ := h.get(path); code != http.StatusOK {
 			t.Errorf("GET %s: status %d", path, code)
 		}
 	}
+}
+
+func TestHeaderShowsHostname(t *testing.T) {
+	_, body := startDashboard(t).get("/")
+	assertContains(t, body, `class="hostname">testhost<`)
 }
 
 func TestNewFailsWithoutAnySocket(t *testing.T) {
