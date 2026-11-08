@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/dockerapi"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/repo"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/state"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/web"
 )
 
@@ -26,6 +28,8 @@ type Options struct {
 	Runner runner.Runner
 	// Hostname is shown in the header. Defaults to the OS hostname.
 	Hostname string
+	// DataDir holds scd's state file. Defaults to config.DataDir().
+	DataDir string
 }
 
 // App is a wired-up dashboard.
@@ -56,6 +60,13 @@ func New(opts Options) (*App, error) {
 	if opts.Hostname == "" {
 		opts.Hostname, _ = os.Hostname()
 	}
+	if opts.DataDir == "" {
+		dir, err := config.DataDir()
+		if err != nil {
+			return nil, err
+		}
+		opts.DataDir = dir
+	}
 	socket, rt, err := dockerapi.DetectSocket(opts.Config.Runtime, opts.Config.Socket, env)
 	if err != nil {
 		return nil, err
@@ -65,6 +76,7 @@ func New(opts Options) (*App, error) {
 	deps := web.Deps{
 		Runtime:  dockerapi.New(socket),
 		Hostname: opts.Hostname,
+		State:    state.Open(filepath.Join(opts.DataDir, "state.json")),
 	}
 	if rc := opts.Config.Repo; rc.URL != "" {
 		a.repo = &repo.Repo{Runner: opts.Runner, URL: rc.URL, Branch: rc.Branch, Path: rc.Path}

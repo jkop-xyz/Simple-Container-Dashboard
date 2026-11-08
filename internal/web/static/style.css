@@ -50,3 +50,8 @@ header { flex-wrap: wrap; }
 .kind { font-weight: 400; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; margin-left: 6px; }
 .stack table { margin-top: 8px; }
 .stack .empty { margin: 6px 0 0; }
+.stack h2 { display: flex; align-items: center; gap: 8px; }
+.select { display: inline; margin: 0; }
+.select label { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.not-selected { font-weight: 400; font-size: 12px; color: var(--muted); font-style: italic; }
+.unselected h2 label { color: var(--muted); }

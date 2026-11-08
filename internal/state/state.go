@@ -1,0 +1,98 @@
+// Package state persists scd's runtime state (Stack selection, and later the applied
+// commit, fingerprints and Apply history) as one JSON file in scd's data directory.
+package state
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"sync"
+)
+
+// State is the persisted state.
+type State struct {
+	// Selected lists the names of the Selected Stacks.
+	Selected []string `json:"selected"`
+}
+
+// Store reads and writes the state file. Safe for concurrent use.
+type Store struct {
+	path string
+	mu   sync.Mutex
+}
+
+// Open returns a store for the state file at path. A missing file is an empty state.
+func Open(path string) *Store { return &Store{path: path} }
+
+// Get returns a copy of the current state.
+func (s *Store) Get() (State, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.load()
+}
+
+// Update applies fn to the state and saves it atomically.
+func (s *Store) Update(fn func(*State)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, err := s.load()
+	if err != nil {
+		return err
+	}
+	fn(&st)
+	return s.save(st)
+}
+
+// IsSelected reports whether the named Stack is selected.
+func (st State) IsSelected(name string) bool { return slices.Contains(st.Selected, name) }
+
+// SetSelected selects or unselects the named Stack.
+func (st *State) SetSelected(name string, selected bool) {
+	st.Selected = slices.DeleteFunc(st.Selected, func(s string) bool { return s == name })
+	if selected {
+		st.Selected = append(st.Selected, name)
+		slices.Sort(st.Selected)
+	}
+}
+
+func (s *Store) load() (State, error) {
+	var st State
+	b, err := os.ReadFile(s.path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return st, nil
+	}
+	if err != nil {
+		return st, err
+	}
+	if err := json.Unmarshal(b, &st); err != nil {
+		return st, fmt.Errorf("state file %s: %w", s.path, err)
+	}
+	return st, nil
+}
+
+func (s *Store) save(st State) error {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".state-*.json")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(append(b, '\n')); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), s.path)
+}

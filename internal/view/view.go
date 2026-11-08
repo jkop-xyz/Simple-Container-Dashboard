@@ -14,7 +14,9 @@ const ComposeProjectLabel = "com.docker.compose.project"
 
 // Group is one Stack and its containers.
 type Group struct {
-	Stack      stacks.Stack
+	Stack stacks.Stack
+	// Selected reports whether the Stack is chosen to run on this host.
+	Selected   bool
 	Containers []dockerapi.Container
 }
 
@@ -27,12 +29,12 @@ type Dashboard struct {
 
 // Build groups containers under the Stacks they belong to. Every Stack gets a group,
 // even with no containers; containers matching no Stack go to Other.
-func Build(containers []dockerapi.Container, ss []stacks.Stack) Dashboard {
+func Build(containers []dockerapi.Container, ss []stacks.Stack, selected func(name string) bool) Dashboard {
 	var d Dashboard
 	index := map[string]int{}
 	for _, s := range ss {
 		index[s.ProjectName()] = len(d.Groups)
-		d.Groups = append(d.Groups, Group{Stack: s})
+		d.Groups = append(d.Groups, Group{Stack: s, Selected: selected(s.Name)})
 	}
 	for _, c := range containers {
 		project := strings.ToLower(c.Labels[ComposeProjectLabel])

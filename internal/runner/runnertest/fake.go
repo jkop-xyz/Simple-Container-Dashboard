@@ -23,8 +23,11 @@ type rule struct {
 }
 
 // Fake records every command it is asked to run and answers from scripted rules.
-// Commands with no matching rule succeed with empty output.
+// Commands with no matching rule go to Delegate if set (e.g. runner.Exec{} so tests can
+// use real git while still recording), and otherwise succeed with empty output.
 type Fake struct {
+	Delegate runner.Runner
+
 	mu    sync.Mutex
 	rules []rule
 	calls []runner.Cmd
@@ -39,18 +42,22 @@ func (f *Fake) On(prefix string, resp Response) {
 }
 
 // Run implements runner.Runner.
-func (f *Fake) Run(_ context.Context, cmd runner.Cmd) (runner.Result, error) {
+func (f *Fake) Run(ctx context.Context, cmd runner.Cmd) (runner.Result, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, cmd)
-	resp := Response{}
+	resp, matched := Response{}, false
 	line := cmd.String()
 	for i := len(f.rules) - 1; i >= 0; i-- {
 		if strings.HasPrefix(line, f.rules[i].prefix) {
-			resp = f.rules[i].resp
+			resp, matched = f.rules[i].resp, true
 			break
 		}
 	}
 	f.mu.Unlock()
+
+	if !matched && f.Delegate != nil {
+		return f.Delegate.Run(ctx, cmd)
+	}
 
 	if resp.Err != nil {
 		return runner.Result{}, resp.Err
