@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/app"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/config"
@@ -44,6 +45,8 @@ func startDashboard(t *testing.T, customize ...func(*app.Options)) *harness {
 		// Every tool is "installed", and the release lookup never reaches the network.
 		LookPath:      func(f string) (string, error) { return "/usr/bin/" + f, nil },
 		LatestRelease: func(context.Context) (string, error) { return "", errors.New("offline in tests") },
+		// Post-Apply health checks settle fast in tests.
+		WatchFor: 60 * time.Millisecond, WatchEvery: 20 * time.Millisecond,
 	}
 	for _, c := range customize {
 		c(&opts)
@@ -52,6 +55,7 @@ func startDashboard(t *testing.T, customize ...func(*app.Options)) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(a.Wait) // let background health checks finish before temp dirs go
 	if err := a.Start(context.Background()); err != nil {
 		t.Logf("Start: %v", err)
 	}

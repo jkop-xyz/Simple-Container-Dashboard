@@ -121,6 +121,7 @@ func New(version string) (*Demo, error) {
 		Version:       version,
 		LatestRelease: func(context.Context) (string, error) { return "", errors.New("demo mode is offline") },
 		Demo:          true,
+		WatchFor:      15 * time.Second, // a quicker post-Apply health check to watch
 	})
 	if err != nil {
 		d.Close()
@@ -191,9 +192,12 @@ func (d *Demo) seedState() error {
 			From: d.git.commits[0].hash, To: d.git.commits[0].hash,
 			Commits: []state.Commit{{Hash: d.git.commits[0].hash, Subject: d.git.commits[0].subject}},
 			Started: time.Now().Add(-26 * time.Hour), Finished: time.Now().Add(-26*time.Hour + 40*time.Second),
+			HealthCheck: "done",
 			Results: []state.StackResult{
-				{Stack: "homeassistant", Action: "deploy"}, {Stack: "jellyfin", Action: "deploy"},
-				{Stack: "nextcloud", Action: "deploy"}, {Stack: "traefik", Action: "deploy"},
+				{Stack: "homeassistant", Action: "deploy", After: state.AfterUnhealthy},
+				{Stack: "jellyfin", Action: "deploy", After: state.AfterHealthy},
+				{Stack: "nextcloud", Action: "deploy", After: state.AfterHealthy},
+				{Stack: "traefik", Action: "deploy", After: state.AfterHealthy},
 			},
 		})
 	})

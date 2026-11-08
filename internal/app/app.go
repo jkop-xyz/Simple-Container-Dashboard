@@ -51,6 +51,8 @@ type Options struct {
 	LatestRelease release.Latest
 	// Demo shows the demo-mode banner.
 	Demo bool
+	// WatchFor and WatchEvery tune the post-Apply health check (0 = the defaults).
+	WatchFor, WatchEvery time.Duration
 }
 
 // App is a wired-up dashboard.
@@ -61,6 +63,7 @@ type App struct {
 
 	repo    *repo.Repo
 	cloner  *cloner
+	engine  *engine.Engine
 	missing []string
 	runner  runner.Runner
 	look    hostcheck.LookPath
@@ -101,8 +104,9 @@ func New(opts Options) (*App, error) {
 		rt = config.Docker // a socket given without a runtime is taken to be Docker
 	}
 	a := &App{Runtime: rt, Socket: socket}
+	client := dockerapi.New(socket)
 	deps := web.Deps{
-		Runtime:     dockerapi.New(socket),
+		Runtime:     client,
 		RuntimeKind: rt,
 		Hostname:    opts.Hostname,
 		Demo:        opts.Demo,
@@ -148,7 +152,9 @@ func New(opts Options) (*App, error) {
 			}
 		}
 		deps.Engine = &engine.Engine{Repo: a.repo, State: deps.State, Deployers: deployers, Runtime: rt,
-			Outputs: engine.Outputs{Dir: filepath.Join(opts.DataDir, "applies")}}
+			Outputs: engine.Outputs{Dir: filepath.Join(opts.DataDir, "applies")},
+			Probe:   runtimeProbe{client: client}, WatchFor: opts.WatchFor, WatchEvery: opts.WatchEvery}
+		a.engine = deps.Engine
 	}
 	if rt == config.Podman {
 		deps.Units = systemd.User{Runner: opts.Runner}
@@ -231,4 +237,11 @@ func (c *cloner) check() error {
 		return c.clone(ctx)
 	}
 	return err
+}
+
+// Wait blocks until background work (post-Apply health checks) has finished.
+func (a *App) Wait() {
+	if a.engine != nil {
+		a.engine.Wait()
+	}
 }

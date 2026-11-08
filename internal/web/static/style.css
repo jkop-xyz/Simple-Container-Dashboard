@@ -518,3 +518,8 @@ a.tile.tile-bad:hover { border-color: var(--bad); }
 .terminal mark { background: #f5c451; color: #111; border-radius: 2px; padding: 0 1px; }
 .log-card .card-head .image { margin: 0; max-width: 40ch; }
 .log-card .terminal.log { height: calc(100dvh - 300px); }
+
+/* Post-Apply health check. */
+.warn-text { color: var(--warn); font-weight: 600; }
+.health-check .spinner { width: 10px; height: 10px; margin-right: 2px; }
+td.after { white-space: nowrap; }
