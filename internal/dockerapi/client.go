@@ -20,6 +20,18 @@ type Container struct {
 	State  string // e.g. "running", "exited", "created"
 	Status string // human-readable, e.g. "Exited (1) 3 hours ago"
 	Labels map[string]string
+	Ports  []Port
+}
+
+// Port is one port binding of a container.
+type Port struct {
+	// IP is the host address it is published on ("0.0.0.0", "::", "127.0.0.1", ...).
+	IP          string
+	PrivatePort int
+	// PublicPort is the host port, or 0 when the port is exposed but not published.
+	PublicPort int
+	// Type is "tcp", "udp" or "sctp".
+	Type string
 }
 
 // Client talks to a runtime over its Unix socket.
@@ -51,6 +63,12 @@ func (c *Client) ListContainers(ctx context.Context) ([]Container, error) {
 		State  string            `json:"State"`
 		Status string            `json:"Status"`
 		Labels map[string]string `json:"Labels"`
+		Ports  []struct {
+			IP          string `json:"IP"`
+			PrivatePort int    `json:"PrivatePort"`
+			PublicPort  int    `json:"PublicPort"`
+			Type        string `json:"Type"`
+		} `json:"Ports"`
 	}
 	if err := c.getJSON(ctx, "/containers/json?all=true", &wire); err != nil {
 		return nil, err
@@ -61,14 +79,18 @@ func (c *Client) ListContainers(ctx context.Context) ([]Container, error) {
 		if len(w.Names) > 0 {
 			name = strings.TrimPrefix(w.Names[0], "/")
 		}
-		out = append(out, Container{
+		c := Container{
 			ID:     w.ID,
 			Name:   name,
 			Image:  w.Image,
 			State:  w.State,
 			Status: w.Status,
 			Labels: w.Labels,
-		})
+		}
+		for _, p := range w.Ports {
+			c.Ports = append(c.Ports, Port{IP: p.IP, PrivatePort: p.PrivatePort, PublicPort: p.PublicPort, Type: p.Type})
+		}
+		out = append(out, c)
 	}
 	return out, nil
 }

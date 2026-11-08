@@ -26,6 +26,15 @@ type Container struct {
 	Health       string
 	RestartCount int
 	Stats        Stats
+	Ports        []Port
+}
+
+// Port is a port binding in the API's shape.
+type Port struct {
+	IP          string
+	PrivatePort int
+	PublicPort  int
+	Type        string
 }
 
 // Stats is the resource-usage reading the fake reports for a container.
@@ -114,6 +123,7 @@ func (s *Server) listContainers(w http.ResponseWriter, r *http.Request) {
 		State  string            `json:"State"`
 		Status string            `json:"Status"`
 		Labels map[string]string `json:"Labels"`
+		Ports  []Port            `json:"Ports"`
 	}
 	out := []wire{}
 	for _, c := range s.containers {
@@ -122,7 +132,7 @@ func (s *Server) listContainers(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, wire{
 			ID: c.ID, Names: []string{"/" + c.Name}, Image: c.Image,
-			State: c.State, Status: c.Status, Labels: c.Labels,
+			State: c.State, Status: c.Status, Labels: c.Labels, Ports: append([]Port{}, c.Ports...),
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")

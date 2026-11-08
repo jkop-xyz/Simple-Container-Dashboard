@@ -38,14 +38,14 @@
     </h2>
     {{with .Stack.Problem}}<p class="problem">This Stack {{.}}.</p>{{end}}
     {{with .Stack.Warning}}<p class="warning">This Stack {{.}}.</p>{{end}}
-    {{if .Containers}}{{template "containers" .Containers}}{{else}}<p class="empty">No containers.</p>{{end}}
+    {{if .Containers}}{{template "containers" (dict "Rows" .Containers "Host" $.BrowserHost)}}{{else}}<p class="empty">No containers.</p>{{end}}
   </section>
   {{end}}
 
   {{if .Other}}
   <section class="stack other" data-stack="">
     <h2>Other <span class="kind">unmanaged</span></h2>
-    {{template "containers" .Other}}
+    {{template "containers" (dict "Rows" .Other "Host" .BrowserHost)}}
   </section>
   {{else if and (not .Groups) (not .Error)}}
   <p class="empty">No containers on this host.</p>
@@ -57,9 +57,10 @@
 
 {{define "containers"}}
 <table class="containers">
-  <thead><tr><th>Container</th><th>State</th><th>Health</th><th>Restarts</th><th>CPU</th><th>RAM</th><th>Status</th><th>Image</th></tr></thead>
+  <thead><tr><th>Container</th><th>State</th><th>Health</th><th>Restarts</th><th>CPU</th><th>RAM</th><th>Ports</th><th>Status</th><th>Image</th></tr></thead>
   <tbody>
-  {{range .}}
+  {{$host := .Host}}
+  {{range .Rows}}
     <tr class="container state-{{.State}}" data-id="{{.ID}}">
       <td class="name">{{.Name}}</td>
       <td><span class="state">{{.State}}</span></td>
@@ -67,6 +68,7 @@
       <td class="restarts">{{.RestartCount}}</td>
       <td class="cpu num">{{cpu .}}</td>
       <td class="mem num">{{mem .}}</td>
+      <td class="ports">{{range ports .Container $host}}{{if .URL}}<a class="port" href="{{.URL}}" target="_blank" rel="noopener">{{.Port}} ↗</a>{{else}}<span class="port text">{{.Label}}</span>{{end}} {{end}}</td>
       <td class="status">{{.Status}}</td>
       <td class="image">{{.Image}}</td>
     </tr>
