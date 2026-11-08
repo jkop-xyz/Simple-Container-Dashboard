@@ -9,12 +9,16 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/app"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/config"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/setup"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -35,11 +39,13 @@ func run(args []string) error {
 	switch cmd {
 	case "serve":
 		return serve(args)
+	case "setup":
+		return runSetup()
 	case "version":
 		fmt.Println("scd", version)
 		return nil
 	default:
-		return fmt.Errorf("unknown command %q (commands: serve, version)", cmd)
+		return fmt.Errorf("unknown command %q (commands: serve, setup, version)", cmd)
 	}
 }
 
@@ -81,4 +87,46 @@ func serve(args []string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+func runSetup() error {
+	cfgPath, err := config.DefaultPath()
+	if err != nil {
+		return err
+	}
+	dataDir, err := config.DataDir()
+	if err != nil {
+		return err
+	}
+	confDir, err := os.UserConfigDir()
+	if err != nil {
+		return err
+	}
+	bin, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
+		bin = resolved
+	}
+	tmp, err := os.MkdirTemp("", "scd-setup-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	osRelease, _ := os.ReadFile("/etc/os-release")
+
+	return setup.Run(context.Background(), setup.Env{
+		Runner:     runner.Exec{},
+		Prompt:     setup.NewTerminal(os.Stdin, os.Stdout),
+		Out:        os.Stdout,
+		Stdin:      os.Stdin,
+		LookPath:   exec.LookPath,
+		OSRelease:  string(osRelease),
+		ConfigPath: cfgPath,
+		UnitDir:    filepath.Join(confDir, "systemd", "user"),
+		DataDir:    dataDir,
+		Binary:     bin,
+		TempDir:    tmp,
+	})
 }
