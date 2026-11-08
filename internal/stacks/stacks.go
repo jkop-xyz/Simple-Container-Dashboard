@@ -211,3 +211,29 @@ func IgnoresSecrets(gitignore string) bool {
 	}
 	return false
 }
+
+// ServiceName is the systemd service Quadlet generates for a unit file, e.g.
+// "web.container" → "web.service", "app.pod" → "app-pod.service".
+func ServiceName(file string) string {
+	base := path.Base(file)
+	ext := path.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+	switch ext {
+	case ".container", ".kube":
+		return name + ".service"
+	case ".pod", ".network", ".volume", ".image", ".build":
+		return name + "-" + strings.TrimPrefix(ext, ".") + ".service"
+	}
+	return ""
+}
+
+// Services lists the systemd services of a Quadlet Stack, in file order.
+func (s Stack) Services() []string {
+	var out []string
+	for _, f := range s.QuadletUnits() {
+		if svc := ServiceName(f); svc != "" {
+			out = append(out, svc)
+		}
+	}
+	return out
+}

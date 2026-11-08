@@ -11,6 +11,7 @@
   <h1>scd</h1>
   <span class="meta">host: <b class="hostname">{{.Hostname}}</b></span>
   {{if .RepoName}}<span class="meta">repo: <b class="repo">{{.RepoName}}</b>{{if .Commit}} @ <code class="commit" title="{{.Commit}}">{{short .Commit}}</code>{{end}}</span>{{end}}
+  {{with .AutoUpdate}}<span class="meta auto-update">{{"podman-auto-update.timer"}}: <b class="timer-{{.}}">{{.}}</b></span>{{end}}
   {{with .LastApply}}<span class="meta last-apply">last Apply: <a href="/history" title="{{when .Finished}}">{{ago .Finished}}</a>
     {{if .OK}}<span class="ok">✓</span>{{else}}<span class="bad">✗ {{if .Error}}stopped{{else}}{{.Failures}} failed{{end}}</span>{{end}}</span>{{end}}
   {{if .Sync}}<span class="actions">
@@ -38,6 +39,20 @@
     </h2>
     {{with .Stack.Problem}}<p class="problem">This Stack {{.}}.</p>{{end}}
     {{with .Stack.Warning}}<p class="warning">This Stack {{.}}.</p>{{end}}
+    {{with .Units}}
+    <table class="units">
+      <thead><tr><th>Unit</th><th>State</th><th></th></tr></thead>
+      <tbody>
+      {{range .}}
+        <tr class="unit unit-{{.ActiveState}}" data-unit="{{.Name}}">
+          <td class="name">{{.Name}}</td>
+          <td><span class="unit-state">{{.ActiveState}}{{if and .SubState (ne .SubState .ActiveState)}} ({{.SubState}}){{end}}</span>{{if eq .LoadState "not-found"}} <span class="meta">not installed</span>{{end}}</td>
+          <td><a class="logs-link" href="/units/{{.Name}}/logs">unit log</a></td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{end}}
     {{if .Containers}}{{template "containers" (dict "Rows" .Containers "Host" $.BrowserHost)}}{{else}}<p class="empty">No containers.</p>{{end}}
   </section>
   {{end}}
