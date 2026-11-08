@@ -57,12 +57,16 @@
 
 {{define "containers"}}
 <table class="containers">
-  <thead><tr><th>Container</th><th>State</th><th>Status</th><th>Image</th></tr></thead>
+  <thead><tr><th>Container</th><th>State</th><th>Health</th><th>Restarts</th><th>CPU</th><th>RAM</th><th>Status</th><th>Image</th></tr></thead>
   <tbody>
   {{range .}}
     <tr class="container state-{{.State}}" data-id="{{.ID}}">
       <td class="name">{{.Name}}</td>
       <td><span class="state">{{.State}}</span></td>
+      <td class="health health-{{.Health}}">{{health .Health}}</td>
+      <td class="restarts">{{.RestartCount}}</td>
+      <td class="cpu num">{{cpu .}}</td>
+      <td class="mem num">{{mem .}}</td>
       <td class="status">{{.Status}}</td>
       <td class="image">{{.Image}}</td>
     </tr>

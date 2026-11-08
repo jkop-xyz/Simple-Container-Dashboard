@@ -7,7 +7,15 @@ import (
 
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/dockerapi"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/stacks"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/usage"
 )
+
+// Container is a container with everything the dashboard shows about it.
+type Container struct {
+	dockerapi.Container
+	dockerapi.Details
+	usage.Usage
+}
 
 // ComposeProjectLabel is the label Docker Compose (and podman compose) put on containers.
 const ComposeProjectLabel = "com.docker.compose.project"
@@ -17,19 +25,19 @@ type Group struct {
 	Stack stacks.Stack
 	// Selected reports whether the Stack is chosen to run on this host.
 	Selected   bool
-	Containers []dockerapi.Container
+	Containers []Container
 }
 
 // Dashboard is the grouped view of the host.
 type Dashboard struct {
 	Groups []Group
 	// Other holds containers that belong to no Stack in the Deployment Repo.
-	Other []dockerapi.Container
+	Other []Container
 }
 
 // Build groups containers under the Stacks they belong to. Every Stack gets a group,
 // even with no containers; containers matching no Stack go to Other.
-func Build(containers []dockerapi.Container, ss []stacks.Stack, selected func(name string) bool) Dashboard {
+func Build(containers []Container, ss []stacks.Stack, selected func(name string) bool) Dashboard {
 	var d Dashboard
 	index := map[string]int{}
 	for _, s := range ss {
@@ -51,6 +59,6 @@ func Build(containers []dockerapi.Container, ss []stacks.Stack, selected func(na
 	return d
 }
 
-func sortByName(cs []dockerapi.Container) {
+func sortByName(cs []Container) {
 	sort.Slice(cs, func(i, j int) bool { return cs[i].Name < cs[j].Name })
 }

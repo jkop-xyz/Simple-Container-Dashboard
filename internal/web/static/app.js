@@ -19,3 +19,43 @@ if (applyOutput) {
   };
   es.addEventListener("done", () => { es.close(); location.reload(); });
 }
+
+// Refresh container state, health and usage every 5 seconds while the tab is visible.
+const REFRESH_MS = 5000;
+let refreshTimer = null;
+
+async function refreshStatus() {
+  try {
+    const res = await fetch("/api/status", { cache: "no-store" });
+    if (!res.ok) return;
+    const { containers } = await res.json();
+    for (const c of containers) {
+      const row = document.querySelector(`tr.container[data-id="${CSS.escape(c.id)}"]`);
+      if (!row) continue;
+      row.className = `container state-${c.state}`;
+      row.querySelector(".state").textContent = c.state;
+      const health = row.querySelector(".health");
+      health.textContent = c.health;
+      health.className = `health health-${c.health === "—" ? "" : c.health}`;
+      row.querySelector(".restarts").textContent = c.restarts;
+      row.querySelector(".cpu").textContent = c.cpu;
+      row.querySelector(".mem").textContent = c.memory;
+      row.querySelector(".status").textContent = c.status;
+    }
+  } catch (_) {
+    // Network hiccup: try again next tick.
+  }
+}
+
+function scheduleRefresh(delay) {
+  clearTimeout(refreshTimer);
+  if (document.hidden) return;
+  refreshTimer = setTimeout(async () => {
+    await refreshStatus();
+    scheduleRefresh(REFRESH_MS);
+  }, delay);
+}
+
+document.addEventListener("visibilitychange", () => scheduleRefresh(document.hidden ? 0 : 100));
+// The first CPU figure needs two samples, so refresh soon after load.
+if (document.querySelector("tr.container")) scheduleRefresh(1500);

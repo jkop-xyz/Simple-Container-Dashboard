@@ -4,6 +4,7 @@ package web
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/config"
@@ -18,6 +20,7 @@ import (
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/engine"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/stacks"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/state"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/usage"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/view"
 )
 
@@ -41,6 +44,9 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 		}
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	},
+	"health": healthText,
+	"cpu":    cpuText,
+	"mem":    memText,
 	"short": func(commit string) string {
 		if len(commit) > 7 {
 			return commit[:7]
@@ -52,6 +58,8 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 // Runtime is what the web server needs from the container runtime.
 type Runtime interface {
 	ListContainers(ctx context.Context) ([]dockerapi.Container, error)
+	Inspect(ctx context.Context, id string) (dockerapi.Details, error)
+	Stats(ctx context.Context, id string) (dockerapi.Sample, error)
 }
 
 // Repo is what the web server needs from the Deployment Repo clone.
@@ -80,8 +88,9 @@ type Deps struct {
 
 // Server is the dashboard HTTP handler.
 type Server struct {
-	deps Deps
-	mux  *http.ServeMux
+	deps  Deps
+	mux   *http.ServeMux
+	usage usage.Collector
 }
 
 // New returns the dashboard handler.
@@ -95,6 +104,7 @@ func New(deps Deps) *Server {
 	s.mux.HandleFunc("POST /apply", s.apply)
 	s.mux.HandleFunc("GET /apply/stream", s.applyStream)
 	s.mux.HandleFunc("GET /history", s.history)
+	s.mux.HandleFunc("GET /api/status", s.status)
 	return s
 }
 
@@ -120,7 +130,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	data := indexData{Hostname: s.deps.Hostname, RepoName: s.deps.RepoName}
 	status := http.StatusOK
 
-	cs, err := s.deps.Runtime.ListContainers(ctx)
+	cs, err := s.containers(ctx)
 	if err != nil {
 		slog.Error("listing containers", "err", err)
 		data.Error = err.Error()
@@ -283,4 +293,105 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 	if err := pages.ExecuteTemplate(w, "history.html", data); err != nil {
 		slog.Error("rendering history", "err", err)
 	}
+}
+
+// containers lists every container with its details and current usage. Inspect and
+// stats run concurrently; a container whose details can't be read is still listed.
+func (s *Server) containers(ctx context.Context) ([]view.Container, error) {
+	cs, err := s.deps.Runtime.ListContainers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]view.Container, len(cs))
+	keep := map[string]bool{}
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
+	for i, c := range cs {
+		out[i].Container = c
+		keep[c.ID] = true
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if d, err := s.deps.Runtime.Inspect(ctx, c.ID); err == nil {
+				out[i].Details = d
+			} else {
+				slog.Debug("inspecting container", "id", c.ID, "err", err)
+			}
+			if c.State != "running" {
+				return
+			}
+			if sample, err := s.deps.Runtime.Stats(ctx, c.ID); err == nil {
+				out[i].Usage = s.usage.Update(c.ID, sample)
+			} else {
+				slog.Debug("container stats", "id", c.ID, "err", err)
+			}
+		}()
+	}
+	wg.Wait()
+	s.usage.Forget(keep)
+	return out, nil
+}
+
+// statusContainer is one container in the JSON status, with display-ready values.
+type statusContainer struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	State    string `json:"state"`
+	Status   string `json:"status"`
+	Health   string `json:"health"`
+	Restarts int    `json:"restarts"`
+	CPU      string `json:"cpu"`
+	Memory   string `json:"memory"`
+}
+
+// status is the JSON the dashboard polls to refresh container state and usage.
+func (s *Server) status(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	cs, err := s.containers(ctx)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	out := struct {
+		Containers []statusContainer `json:"containers"`
+	}{Containers: []statusContainer{}}
+	for _, c := range cs {
+		out.Containers = append(out.Containers, statusContainer{
+			ID: c.ID, Name: c.Name, State: c.State, Status: c.Status,
+			Health: healthText(c.Health), Restarts: c.RestartCount,
+			CPU: cpuText(c), Memory: memText(c),
+		})
+	}
+	json.NewEncoder(w).Encode(out)
+}
+
+func healthText(h string) string {
+	if h == "" {
+		return "—"
+	}
+	return h
+}
+
+func cpuText(c view.Container) string {
+	if c.State != "running" || !c.HasCPU {
+		return "—"
+	}
+	return fmt.Sprintf("%.1f%%", c.CPUPercent)
+}
+
+func memText(c view.Container) string {
+	if c.State != "running" || c.Memory == 0 {
+		return "—"
+	}
+	const mib = 1 << 20
+	if c.Memory >= 1<<30 {
+		return fmt.Sprintf("%.1f GiB", float64(c.Memory)/(1<<30))
+	}
+	return fmt.Sprintf("%.0f MiB", float64(c.Memory)/mib)
 }
