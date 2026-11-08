@@ -4,39 +4,51 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Apply history · {{.Hostname}}</title>
-<link rel="stylesheet" href="/static/style.css">
+{{template "head"}}
 </head>
 <body>
-<header>
-  <h1><a href="/">scd</a></h1>
-  <span class="meta">host: <b class="hostname">{{.Hostname}}</b></span>
-  <span class="meta">Apply history</span>
+<header class="topbar">
+  <div class="topbar-inner">
+    {{template "brand"}}
+    <div class="host"><span class="host-label">Host</span><span class="hostname">{{.Hostname}}</span></div>
+    <div class="chips"><span class="chip">Apply history</span></div>
+    {{template "back"}}
+  </div>
 </header>
-<main>
-  <p><a href="/">← back to the dashboard</a></p>
+<main class="page">
+  <h1 class="section-title page-title">Apply history <span class="muted">· last 20</span></h1>
+  <ol class="timeline">
   {{range .History}}
-  <section class="history-entry{{if not .OK}} failed{{end}}">
-    <h2>{{when .Finished}}
-      <span class="meta"><code title="{{.From}}">{{short .From}}</code> → <code title="{{.To}}">{{short .To}}</code></span>
-      {{if .OK}}<span class="ok">✓</span>{{else}}<span class="bad">✗</span>{{end}}</h2>
-    {{with .Error}}<p class="error">Stopped before deploying anything: {{.}}</p>{{end}}
+  <li>
+  <section class="history-entry card{{if not .OK}} failed{{end}}">
+    <div class="card-head">
+      <span class="tl-dot {{if .OK}}tl-ok{{else}}tl-bad{{end}}" aria-hidden="true"></span>
+      <h2 class="entry-title">{{when .Finished}}</h2>
+      <span class="range"><code title="{{.From}}">{{short .From}}</code><span class="arrow">→</span><code title="{{.To}}">{{short .To}}</code></span>
+      <span class="card-head-end">{{if .OK}}<span class="pill pill-ok"><span class="ok">✓</span> succeeded</span>{{else}}<span class="pill pill-bad"><span class="bad">✗</span> {{if .Error}}stopped{{else}}{{.Failures}} failed{{end}}</span>{{end}}</span>
+    </div>
+    {{with .Error}}<div class="callout callout-bad error">Stopped before deploying anything: {{.}}</div>{{end}}
     {{if .Results}}
-    <table>
-      <thead><tr><th>Stack</th><th>Action</th><th>Outcome</th></tr></thead>
+    <div class="table-wrap">
+    <table class="grid">
+      <thead><tr><th scope="col">Stack</th><th scope="col">Action</th><th scope="col">Outcome</th></tr></thead>
       <tbody>
       {{range .Results}}
-        <tr class="history-result" data-stack="{{.Stack}}">
-          <td class="name">{{.Stack}}</td><td>{{.Action}}</td>
+        <tr class="history-result plan-entry" data-stack="{{.Stack}}" data-outcome="{{.Action}}">
+          <td class="name">{{.Stack}}</td><td><span class="action">{{.Action}}</span></td>
           <td>{{if .Error}}<span class="bad">failed:</span> <pre class="history-error">{{.Error}}</pre>{{else}}<span class="ok">ok</span>{{end}}</td>
         </tr>
       {{end}}
       </tbody>
     </table>
+    </div>
     {{end}}
   </section>
+  </li>
   {{else}}
-  <p class="empty">No Applies yet.</p>
+  <li class="empty-state"><p class="empty">No Applies yet.</p></li>
   {{end}}
+  </ol>
 </main>
 </body>
 </html>

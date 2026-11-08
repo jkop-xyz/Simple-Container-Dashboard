@@ -4,21 +4,32 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.C.Name}} logs · {{.Hostname}}</title>
-<link rel="stylesheet" href="/static/style.css">
+{{template "head"}}
 </head>
 <body class="logs-page">
-<header>
-  <h1><a href="/">scd</a></h1>
-  <span class="meta">host: <b class="hostname">{{.Hostname}}</b></span>
-  <span class="meta">logs: <b class="container-name">{{.C.Name}}</b> <span class="state-{{.C.State}}"><span class="state">{{.C.State}}</span></span></span>
-  <span class="actions">
-    <button type="button" class="log-pause" aria-pressed="false">Pause</button>
-  </span>
+<header class="topbar">
+  <div class="topbar-inner">
+    {{template "brand"}}
+    <div class="host"><span class="host-label">Host</span><span class="hostname">{{.Hostname}}</span></div>
+    <div class="chips"><span class="chip">logs</span></div>
+    {{template "back"}}
+  </div>
 </header>
-<main>
-  <p><a href="/">← back to the dashboard</a> · last {{.Tail}} lines{{if eq .C.State "running"}}, then live{{end}} <span class="log-status meta"></span></p>
-  <pre class="log" data-stream="/containers/{{.C.ID}}/logs/stream" aria-live="off"></pre>
-  <noscript><p class="error">The log view needs JavaScript.</p></noscript>
+<main class="page">
+  <div class="card log-card">
+    <div class="card-head">
+      <span class="state-{{.C.State}} cname"><span class="dot" aria-hidden="true"></span><h1 class="container-name">{{.C.Name}}</h1></span>
+      <span class="badges"><span class="state-{{.C.State}}"><span class="state">{{.C.State}}</span></span></span>
+      <span class="muted">last {{.Tail}} lines{{if eq .C.State "running"}}, then live{{end}}</span>
+      <span class="card-head-end">
+        <span class="live" hidden><span class="live-dot" aria-hidden="true"></span>Live</span>
+        <span class="log-status muted" role="status"></span>
+        <button type="button" class="btn btn-secondary btn-sm log-pause" aria-pressed="false">Pause</button>
+      </span>
+    </div>
+    <pre class="terminal log" data-stream="/containers/{{.C.ID}}/logs/stream" aria-live="off"></pre>
+  </div>
+  <noscript><div class="callout callout-bad error">The log view needs JavaScript.</div></noscript>
 </main>
 <script src="/static/app.js"></script>
 </body>

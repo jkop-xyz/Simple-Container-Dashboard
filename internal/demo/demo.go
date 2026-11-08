@@ -220,9 +220,6 @@ func (d *Demo) deploy(stack, image string) []string {
 		name := fmt.Sprintf("%s-%s-1", stack, s.name)
 		id := fmt.Sprintf("%x", rand.Uint64())
 		labels := map[string]string{"com.docker.compose.project": stack, "com.docker.compose.service": s.name}
-		if s.https {
-			labels["scd.scheme"] = "https"
-		}
 		add = append(add, dockertest.Container{
 			ID: id, Name: name, Image: image, State: "running", Status: "Up Less than a second",
 			Labels: labels, Health: s.health, RestartCount: s.restarts, Ports: s.ports,

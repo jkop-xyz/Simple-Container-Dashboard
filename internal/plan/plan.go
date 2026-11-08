@@ -145,3 +145,21 @@ func rank(a Action) int {
 func (e *Entry) Invalidate(problem string) {
 	e.Action, e.Reason = Invalid, problem
 }
+
+// Counts tallies the plan's entries by action.
+func (p *Plan) Counts() map[Action]int {
+	out := map[Action]int{}
+	for _, e := range p.Entries {
+		out[e.Action]++
+	}
+	return out
+}
+
+// Count is how many entries have the named action (e.g. "deploy").
+func (p *Plan) Count(action string) int { return p.Counts()[Action(action)] }
+
+// Changes is how many Stacks Apply will deploy, redeploy or tear down.
+func (p *Plan) Changes() int {
+	c := p.Counts()
+	return c[Deploy] + c[Redeploy] + c[Teardown]
+}
