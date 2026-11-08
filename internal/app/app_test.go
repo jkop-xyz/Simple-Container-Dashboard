@@ -39,6 +39,7 @@ func startDashboard(t *testing.T, customize ...func(*app.Options)) *harness {
 		Env:      noHostEnv,
 		Runner:   &runnertest.Fake{},
 		Hostname: "testhost",
+		DataDir:  t.TempDir(),
 	}
 	for _, c := range customize {
 		c(&opts)

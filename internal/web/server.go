@@ -8,10 +8,12 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/dockerapi"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/stacks"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/state"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/view"
 )
 
@@ -51,6 +53,7 @@ type Deps struct {
 	// RepoError reports why the clone is unavailable (e.g. the initial clone failed).
 	RepoError func() error
 	Hostname  string
+	State     *state.Store
 }
 
 // Server is the dashboard HTTP handler.
@@ -65,6 +68,7 @@ func New(deps Deps) *Server {
 	static, _ := fs.Sub(staticFS, "static")
 	s.mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
 	s.mux.HandleFunc("GET /{$}", s.index)
+	s.mux.HandleFunc("POST /stacks/{name}/selection", s.setSelection)
 	return s
 }
 
@@ -101,7 +105,13 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 			data.RepoError = err.Error()
 		}
 	}
-	data.Dashboard = view.Build(cs, ss)
+	st, err := s.deps.State.Get()
+	if err != nil {
+		slog.Error("reading state", "err", err)
+		data.Error = err.Error()
+		status = http.StatusInternalServerError
+	}
+	data.Dashboard = view.Build(cs, ss, st.IsSelected)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
@@ -125,4 +135,30 @@ func (s *Server) discover(ctx context.Context) ([]stacks.Stack, string, error) {
 		return nil, head, err
 	}
 	return stacks.Discover(files), head, nil
+}
+
+// setSelection selects or unselects a Stack. It changes only the selection: nothing is
+// deployed or torn down until an Apply.
+func (s *Server) setSelection(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	selected := r.FormValue("selected") == "true"
+	if s.deps.Repo == nil {
+		http.Error(w, "no Deployment Repo configured", http.StatusNotFound)
+		return
+	}
+	ss, _, err := s.discover(r.Context())
+	if err != nil {
+		http.Error(w, "reading Deployment Repo: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	if !slices.ContainsFunc(ss, func(st stacks.Stack) bool { return st.Name == name }) {
+		http.Error(w, "no Stack named "+name, http.StatusNotFound)
+		return
+	}
+	if err := s.deps.State.Update(func(st *state.State) { st.SetSelected(name, selected) }); err != nil {
+		http.Error(w, "saving selection: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	slog.Info("Stack selection changed", "stack", name, "selected", selected)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
