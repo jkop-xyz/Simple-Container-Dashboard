@@ -152,10 +152,16 @@ func (e *Engine) LastApply() *ApplyRun {
 func (e *Engine) runApply(run *ApplyRun) {
 	ctx, cancel := context.WithTimeout(context.Background(), applyTimeout)
 	defer cancel()
+	slog.Info("Apply started", "from", run.Plan.From, "to", run.Plan.To)
 	defer func() {
 		run.mu.Lock()
 		run.finished = time.Now()
 		run.mu.Unlock()
+		if err := e.State.Update(func(st *state.State) { st.AddHistory(run.Record()) }); err != nil {
+			run.Output.line("!!! saving Apply history: " + err.Error())
+		}
+		rec := run.Record()
+		slog.Info("Apply finished", "to", rec.To, "ok", rec.OK(), "failed", rec.Failures(), "error", rec.Error)
 		run.Output.Close()
 		close(run.Done)
 	}()
@@ -246,3 +252,15 @@ func short(commit string) string {
 
 // Deployers is the set of deployers by Stack kind; see deploy.Compose.
 type Deployers = map[stacks.Kind]deploy.Deployer
+
+// Record is the Apply as a history entry.
+func (r *ApplyRun) Record() state.ApplyRecord {
+	rec := state.ApplyRecord{From: r.Plan.From, To: r.Plan.To, Started: r.Started, Finished: r.Finished()}
+	if err := r.Err(); err != nil {
+		rec.Error = err.Error()
+	}
+	for _, res := range r.Results() {
+		rec.Results = append(rec.Results, state.StackResult{Stack: res.Stack, Action: string(res.Action), Error: res.Err})
+	}
+	return rec
+}
