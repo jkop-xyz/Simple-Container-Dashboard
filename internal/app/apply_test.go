@@ -55,7 +55,7 @@ func (e *syncEnv) follow() string {
 func (e *syncEnv) composeLines() []string {
 	var out []string
 	for _, l := range e.rec.Lines() {
-		if strings.HasPrefix(l, "docker ") && !strings.HasSuffix(l, " config --quiet") {
+		if strings.HasPrefix(l, "docker ") && !strings.HasSuffix(l, " config --quiet") && l != "docker compose version" {
 			out = append(out, l)
 		}
 	}

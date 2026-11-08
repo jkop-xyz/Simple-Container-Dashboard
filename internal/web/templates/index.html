@@ -14,12 +14,14 @@
   {{with .AutoUpdate}}<span class="meta auto-update">{{"podman-auto-update.timer"}}: <b class="timer-{{.}}">{{.}}</b></span>{{end}}
   {{with .LastApply}}<span class="meta last-apply">last Apply: <a href="/history" title="{{when .Finished}}">{{ago .Finished}}</a>
     {{if .OK}}<span class="ok">✓</span>{{else}}<span class="bad">✗ {{if .Error}}stopped{{else}}{{.Failures}} failed{{end}}</span>{{end}}</span>{{end}}
+  {{with .NewRelease}}<a class="meta new-release" href="https://github.com/jkop-xyz/Simple-Container-Dashboard/releases/tag/{{.}}" target="_blank" rel="noopener">new version {{.}} available</a>{{end}}
   {{if .Sync}}<span class="actions">
     <form method="post" action="/sync"><button class="sync-button">Sync</button></form>
     <form method="post" action="/apply"><button class="apply-button"{{if not .Sync.CanApply}} disabled{{end}}>Apply</button></form>
   </span>{{end}}
 </header>
 <main>
+  {{with .Missing}}<p class="error missing-tools" role="alert">This host is missing tools scd needs: {{range $i, $t := .}}{{if $i}}, {{end}}<code>{{$t}}</code>{{end}}. Run <code>scd setup</code> or install them.</p>{{end}}
   {{if .Error}}<p class="error" role="alert">Can't reach the container runtime: {{.Error}}</p>{{end}}
   {{if .RepoError}}<p class="error" role="alert">Deployment Repo unavailable: {{.RepoError}}</p>{{end}}
 
