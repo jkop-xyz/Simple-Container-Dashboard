@@ -3,12 +3,14 @@
 package dockertest
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +29,9 @@ type Container struct {
 	RestartCount int
 	Stats        Stats
 	Ports        []Port
+	// Logs is the container's output so far; Tty makes the fake send it unframed.
+	Logs []string
+	Tty  bool
 }
 
 // Port is a port binding in the API's shape.
@@ -53,6 +58,47 @@ type Server struct {
 
 	mu         sync.Mutex
 	containers []Container
+	feeds      map[string]*feed
+}
+
+// feed is one container's log output, which followers wait on.
+type feed struct {
+	lines   []string
+	ended   bool
+	changed chan struct{}
+}
+
+// AppendLogs adds output to a container's log, waking anyone following it.
+func (s *Server) AppendLogs(id string, lines ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f := s.feed(id)
+	f.lines = append(f.lines, lines...)
+	close(f.changed)
+	f.changed = make(chan struct{})
+}
+
+// EndLogs makes followers of a container's log see it stop, as when it exits.
+func (s *Server) EndLogs(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f := s.feed(id)
+	f.ended = true
+	close(f.changed)
+	f.changed = make(chan struct{})
+}
+
+// feed returns the container's log feed. Call with s.mu held.
+func (s *Server) feed(id string) *feed {
+	if s.feeds == nil {
+		s.feeds = map[string]*feed{}
+	}
+	f := s.feeds[id]
+	if f == nil {
+		f = &feed{changed: make(chan struct{})}
+		s.feeds[id] = f
+	}
+	return f
 }
 
 // versionPrefix matches the optional API version segment, e.g. "/v1.41".
@@ -95,6 +141,11 @@ func (s *Server) SetContainers(cs ...Container) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.containers = append([]Container(nil), cs...)
+	for _, c := range cs {
+		if len(c.Logs) > 0 {
+			s.feed(c.ID).lines = append([]string(nil), c.Logs...)
+		}
+	}
 }
 
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
@@ -107,6 +158,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.withContainer(w, id, s.inspect)
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/containers/") && sub == "stats":
 		s.withContainer(w, id, s.stats)
+	case r.Method == http.MethodGet && strings.HasPrefix(path, "/containers/") && sub == "logs":
+		s.withContainer(w, id, func(w http.ResponseWriter, c Container) { s.logs(w, r, c) })
 	default:
 		http.Error(w, `{"message":"not implemented by fake"}`, http.StatusNotFound)
 	}
@@ -158,7 +211,8 @@ func (s *Server) withContainer(w http.ResponseWriter, id string, fn func(http.Re
 }
 
 func (s *Server) inspect(w http.ResponseWriter, c Container) {
-	out := map[string]any{"Id": c.ID, "RestartCount": c.RestartCount, "State": map[string]any{"Status": c.State}}
+	out := map[string]any{"Id": c.ID, "RestartCount": c.RestartCount, "State": map[string]any{"Status": c.State},
+		"Config": map[string]any{"Tty": c.Tty}}
 	if c.Health != "" {
 		out["State"].(map[string]any)["Health"] = map[string]any{"Status": c.Health}
 	}
@@ -182,4 +236,65 @@ func (s *Server) stats(w http.ResponseWriter, c Container) {
 			"stats": map[string]any{"inactive_file": st.InactiveFile},
 		},
 	})
+}
+
+// logs serves tail lines, then (with follow) new lines until EndLogs or the client goes
+// away. Non-TTY output is framed like the real API, each line split over two frames.
+func (s *Server) logs(w http.ResponseWriter, r *http.Request, c Container) {
+	w.Header().Set("Content-Type", "application/vnd.docker.raw-stream")
+	flusher, _ := w.(http.Flusher)
+	write := func(line string) {
+		data := []byte(line + "\n")
+		if c.Tty {
+			w.Write(data)
+			return
+		}
+		half := len(data) / 2
+		for _, chunk := range [][]byte{data[:half], data[half:]} {
+			var hdr [8]byte
+			hdr[0] = 1
+			binary.BigEndian.PutUint32(hdr[4:], uint32(len(chunk)))
+			w.Write(hdr[:])
+			w.Write(chunk)
+		}
+	}
+
+	s.mu.Lock()
+	f := s.feed(c.ID)
+	lines := f.lines
+	if n, err := strconv.Atoi(r.URL.Query().Get("tail")); err == nil && n < len(lines) {
+		lines = lines[len(lines)-n:]
+	}
+	sent := len(f.lines)
+	s.mu.Unlock()
+	for _, l := range lines {
+		write(l)
+	}
+	if flusher != nil {
+		flusher.Flush()
+	}
+	if r.URL.Query().Get("follow") != "true" {
+		return
+	}
+	for {
+		s.mu.Lock()
+		f := s.feed(c.ID)
+		next, ended, ch := f.lines[sent:], f.ended, f.changed
+		sent = len(f.lines)
+		s.mu.Unlock()
+		for _, l := range next {
+			write(l)
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
+		if ended {
+			return
+		}
+		select {
+		case <-ch:
+		case <-r.Context().Done():
+			return
+		}
+	}
 }

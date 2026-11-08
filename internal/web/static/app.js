@@ -59,3 +59,39 @@ function scheduleRefresh(delay) {
 document.addEventListener("visibilitychange", () => scheduleRefresh(document.hidden ? 0 : 100));
 // The first CPU figure needs two samples, so refresh soon after load.
 if (document.querySelector("tr.container")) scheduleRefresh(1500);
+
+// Container logs: tail, then follow live. Pause stops appending without losing lines.
+const logView = document.querySelector("pre.log[data-stream]");
+if (logView) {
+  const MAX_LINES = 10000;
+  const pauseBtn = document.querySelector(".log-pause");
+  const status = document.querySelector(".log-status");
+  let paused = false;
+  let held = [];
+  let count = 0;
+
+  const append = (lines) => {
+    const atBottom = logView.scrollHeight - logView.scrollTop - logView.clientHeight < 40;
+    logView.append(document.createTextNode(lines.join("\n") + "\n"));
+    count += lines.length;
+    if (count > MAX_LINES) {
+      const text = logView.textContent.split("\n");
+      logView.textContent = text.slice(text.length - MAX_LINES - 1).join("\n");
+      count = MAX_LINES;
+    }
+    if (atBottom) logView.scrollTop = logView.scrollHeight;
+  };
+
+  const es = new EventSource(logView.dataset.stream);
+  es.onmessage = (e) => (paused ? held.push(e.data) : append([e.data]));
+  es.addEventListener("error", (e) => { if (e.data) status.textContent = "error: " + e.data; });
+  es.addEventListener("done", () => { es.close(); status.textContent = "(end of log)"; });
+
+  pauseBtn.addEventListener("click", () => {
+    paused = !paused;
+    pauseBtn.textContent = paused ? "Resume" : "Pause";
+    pauseBtn.setAttribute("aria-pressed", String(paused));
+    if (!paused && held.length) { append(held); held = []; }
+    status.textContent = paused ? "(paused)" : "";
+  });
+}
