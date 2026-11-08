@@ -139,7 +139,7 @@ func TestLogsPage(t *testing.T) {
 		t.Fatalf("status %d", code)
 	}
 	assertContains(t, page, "jellyfin", `data-stream="/containers/abc/logs/stream"`, `href="/"`, "Back to the dashboard",
-		"last 500 lines, then live", `log-pause"`)
+		`Last <span class="log-tail">500</span> lines, then live`, `log-pause"`)
 
 	if code, _ := h.get("/containers/nope/logs"); code != http.StatusNotFound {
 		t.Errorf("unknown container: status %d", code)
@@ -151,7 +151,8 @@ func TestLogsPage(t *testing.T) {
 
 func TestLogViewerScriptPausesWithoutLosingLines(t *testing.T) {
 	_, js := startDashboard(t).get("/static/app.js")
-	assertContains(t, js, "EventSource(logView.dataset.stream)", "held.push", "append(held)", `addEventListener("done"`)
+	assertContains(t, js, "new EventSource(`${logView.dataset.stream}?${params}`)", "held.push", "append(held)", `addEventListener("done"`,
+		".log-filter", "mark", ".log-download", `params.set("lines"`, `params.set("timestamps", "1")`)
 }
 
 func first(s []string) string {
@@ -166,4 +167,39 @@ func last(s []string) string {
 		return ""
 	}
 	return s[len(s)-1]
+}
+
+func TestLogLineCountCanBeRaised(t *testing.T) {
+	h := startDashboard(t)
+	h.api.SetContainers(dockertest.Container{ID: "c", Name: "web", State: "exited", Logs: lines(3000)})
+	for query, want := range map[string]int{"lines=2000": 2000, "lines=10000": 3000, "lines=7": 500, "": 500} {
+		got := collect(t, h.logEvents(context.Background(), "c/logs/stream?"+query+"&x=")) // logEvents appends /logs/stream into x=
+		if len(got) != want {
+			t.Errorf("%q: %d lines, want %d", query, len(got), want)
+		}
+	}
+}
+
+func TestLogTimestampsCanBeTurnedOn(t *testing.T) {
+	h := startDashboard(t)
+	h.api.SetContainers(dockertest.Container{ID: "c", Name: "web", State: "exited", Logs: []string{"hello"}})
+	if got := collect(t, h.logEvents(context.Background(), "c/logs/stream?timestamps=1&x=")); len(got) != 1 || got[0] != "2026-11-09T12:00:00.000000000Z hello" {
+		t.Errorf("with timestamps: %q", got)
+	}
+	if got := collect(t, h.logEvents(context.Background(), "c/logs/stream?x=")); got[0] != "hello" {
+		t.Errorf("without timestamps: %q", got)
+	}
+}
+
+func TestLogsPageShowsTheContainersCondition(t *testing.T) {
+	h := startDashboard(t)
+	h.api.SetContainers(
+		dockertest.Container{ID: "sick", Name: "ha", State: "running", Health: "unhealthy", RestartCount: 4},
+		dockertest.Container{ID: "dead", Name: "job", State: "exited", Status: "Exited (137) 5 minutes ago"},
+	)
+	_, sick := h.get("/containers/sick/logs")
+	assertContains(t, sick, "health-unhealthy", "↻ 4", "The log spans restarts", `class="log-filter"`, `class="log-lines"`,
+		`<option value="10000">`, `class="log-timestamps"`, `class="btn btn-secondary btn-sm log-download"`)
+	_, dead := h.get("/containers/dead/logs")
+	assertContains(t, dead, "exit code 137", "badge-bad exit-code")
 }

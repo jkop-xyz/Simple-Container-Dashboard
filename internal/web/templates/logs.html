@@ -19,15 +19,30 @@
   <div class="card log-card">
     <div class="card-head">
       <span class="state-{{.C.State}} cname"><span class="dot" aria-hidden="true"></span><h1 class="container-name">{{.C.Name}}</h1></span>
-      <span class="badges"><span class="state-{{.C.State}}"><span class="state">{{.C.State}}</span></span></span>
-      <span class="muted">last {{.Tail}} lines{{if eq .C.State "running"}}, then live{{end}}</span>
+      <span class="badges">
+        <span class="state-{{.C.State}}"><span class="state">{{.C.State}}</span></span>
+        {{with .D.Health}}<span class="health health-{{.}}">{{.}}</span>{{end}}
+        {{with .D.RestartCount}}<span class="restarts-badge" title="restarts">↻ {{.}}</span>{{end}}
+        {{with .ExitCode}}<span class="badge {{if eq . "0"}}badge-neutral{{else}}badge-bad{{end}} exit-code">exit code {{.}}</span>{{end}}
+      </span>
+      <span class="muted mono image">{{.C.Image}}</span>
       <span class="card-head-end">
         <span class="live" hidden><span class="live-dot" aria-hidden="true"></span>Live</span>
         <span class="log-status muted" role="status"></span>
         <button type="button" class="btn btn-secondary btn-sm log-pause" aria-pressed="false">Pause</button>
       </span>
     </div>
-    <pre class="terminal log" data-stream="/containers/{{.C.ID}}/logs/stream" aria-live="off"></pre>
+    <div class="log-toolbar" role="toolbar" aria-label="Log view">
+      <label class="field field-grow"><span class="visually-hidden">Filter lines</span>
+        <input type="search" class="log-filter" placeholder="Filter lines…" autocomplete="off" spellcheck="false"></label>
+      <span class="log-count muted" aria-live="polite"></span>
+      <label class="field"><span>Lines</span>
+        <select class="log-lines">{{range .Tails}}<option value="{{.}}"{{if eq . $.Tail}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+      <label class="field check"><input type="checkbox" class="log-timestamps"> <span>Timestamps</span></label>
+      <button type="button" class="btn btn-secondary btn-sm log-download">Download</button>
+    </div>
+    <p class="log-hint muted">Last <span class="log-tail">{{.Tail}}</span> lines{{if eq .C.State "running"}}, then live{{end}}.{{if .D.RestartCount}} The log spans restarts: pick more lines to see output from before the last one.{{end}}</p>
+    <pre class="terminal log" data-stream="/containers/{{.C.ID}}/logs/stream" data-name="{{.C.Name}}" aria-live="off"></pre>
   </div>
   <noscript><div class="callout callout-bad error">The log view needs JavaScript.</div></noscript>
 </main>

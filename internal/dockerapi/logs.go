@@ -13,15 +13,29 @@ import (
 // maxLogLine bounds one log line; longer lines are split.
 const maxLogLine = 1 << 20
 
-// Logs streams a container's output (stdout and stderr interleaved) line by line to fn,
-// starting with the last tail lines. With follow it keeps streaming until the
-// container stops or ctx is cancelled. tty says whether the container has a terminal,
-// in which case the runtime sends raw output instead of multiplexed frames.
-func (c *Client) Logs(ctx context.Context, id string, tail int, follow, tty bool, fn func(line string) error) error {
-	q := url.Values{"stdout": {"true"}, "stderr": {"true"}, "tail": {fmt.Sprint(tail)}}
-	if follow {
+// LogOptions choose what Logs streams.
+type LogOptions struct {
+	// Tail is how many of the most recent lines to start with.
+	Tail int
+	// Follow keeps streaming new output until the container stops.
+	Follow bool
+	// Timestamps prefixes each line with the runtime's RFC 3339 timestamp.
+	Timestamps bool
+	// Tty says the container has a terminal, so its output isn't multiplexed.
+	Tty bool
+}
+
+// Logs streams a container's output (stdout and stderr interleaved) line by line to fn.
+// It stops when the output ends, the container stops (with Follow) or ctx is cancelled.
+func (c *Client) Logs(ctx context.Context, id string, opts LogOptions, fn func(line string) error) error {
+	q := url.Values{"stdout": {"true"}, "stderr": {"true"}, "tail": {fmt.Sprint(opts.Tail)}}
+	if opts.Follow {
 		q.Set("follow", "true")
 	}
+	if opts.Timestamps {
+		q.Set("timestamps", "true")
+	}
+	tty := opts.Tty
 	resp, err := c.get(ctx, "/containers/"+url.PathEscape(id)+"/logs?"+q.Encode())
 	if err != nil {
 		return err

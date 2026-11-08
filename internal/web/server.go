@@ -112,7 +112,7 @@ type Runtime interface {
 	ListContainers(ctx context.Context) ([]dockerapi.Container, error)
 	Inspect(ctx context.Context, id string) (dockerapi.Details, error)
 	Stats(ctx context.Context, id string) (dockerapi.Sample, error)
-	Logs(ctx context.Context, id string, tail int, follow, tty bool, fn func(line string) error) error
+	Logs(ctx context.Context, id string, opts dockerapi.LogOptions, fn func(line string) error) error
 }
 
 // Units reads systemd units; only set on Podman hosts.
@@ -125,8 +125,20 @@ type Units interface {
 // AutoUpdateTimer is Podman's image auto-update timer, shown in the header.
 const AutoUpdateTimer = "podman-auto-update.timer"
 
-// LogTail is how many lines a logs view starts with.
+// LogTail is how many lines a logs view starts with; LogTails are the choices offered.
 const LogTail = 500
+
+// LogTails are the line counts a log view can start with.
+var LogTails = []int{500, 2000, 10000}
+
+// logTail reads the ?lines= choice, falling back to LogTail.
+func logTail(r *http.Request) int {
+	n, _ := strconv.Atoi(r.URL.Query().Get("lines"))
+	if slices.Contains(LogTails, n) {
+		return n
+	}
+	return LogTail
+}
 
 // Repo is what the web server needs from the Deployment Repo clone.
 type Repo interface {
@@ -535,11 +547,15 @@ func (s *Server) logsPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such container", http.StatusNotFound)
 		return
 	}
+	details, _ := s.deps.Runtime.Inspect(r.Context(), c.ID)
 	data := struct {
 		Hostname string
 		C        dockerapi.Container
+		D        dockerapi.Details
+		ExitCode string
 		Tail     int
-	}{s.deps.Hostname, c, LogTail}
+		Tails    []int
+	}{s.deps.Hostname, c, details, exitCode(c.Status), LogTail, LogTails}
 	render(w, http.StatusOK, "logs.html", data)
 }
 
@@ -562,7 +578,9 @@ func (s *Server) logsStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse(w, r, func(send func(event, data string) error) error {
-		err := s.deps.Runtime.Logs(ctx, c.ID, LogTail, c.State == "running", details.Tty, func(line string) error {
+		opts := dockerapi.LogOptions{Tail: logTail(r), Follow: c.State == "running", Tty: details.Tty,
+			Timestamps: r.URL.Query().Get("timestamps") == "1"}
+		err := s.deps.Runtime.Logs(ctx, c.ID, opts, func(line string) error {
 			return send("", line)
 		})
 		if err != nil && ctx.Err() == nil {
@@ -625,7 +643,8 @@ func (s *Server) unitLogsPage(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		Hostname, Unit string
 		Tail           int
-	}{s.deps.Hostname, unit, LogTail}
+		Tails          []int
+	}{s.deps.Hostname, unit, LogTail, LogTails}
 	render(w, http.StatusOK, "unitlogs.html", data)
 }
 
@@ -639,7 +658,7 @@ func (s *Server) unitLogsStream(w http.ResponseWriter, r *http.Request) {
 	}
 	sse(w, r, func(send func(event, data string) error) error {
 		lw := &lineWriter{send: func(line string) error { return send("", line) }}
-		err := s.deps.Units.Journal(r.Context(), unit, LogTail, true, lw)
+		err := s.deps.Units.Journal(r.Context(), unit, logTail(r), true, lw)
 		lw.Flush()
 		if err != nil && r.Context().Err() == nil {
 			send("error", err.Error())
@@ -782,4 +801,14 @@ func (s *Server) historyOutput(w http.ResponseWriter, r *http.Request) {
 		Lines    []string
 		Kept     bool
 	}{s.deps.Hostname, rec, lines, ok})
+}
+
+// exitCode extracts N from a status like "Exited (N) 3 hours ago".
+func exitCode(status string) string {
+	rest, ok := strings.CutPrefix(status, "Exited (")
+	if !ok {
+		return ""
+	}
+	code, _, _ := strings.Cut(rest, ")")
+	return code
 }
