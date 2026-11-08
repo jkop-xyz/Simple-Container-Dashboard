@@ -1,0 +1,44 @@
+:root {
+  --bg: #f7f7f5;
+  --fg: #1d1d1b;
+  --muted: #6b6b66;
+  --line: #deded8;
+  --ok: #1f7a3a;
+  --bad: #b3261e;
+  --idle: #8a8a83;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615;
+    --fg: #e8e8e3;
+    --muted: #9a9a93;
+    --line: #2e2e2b;
+    --ok: #5cc77e;
+    --bad: #f2786d;
+    --idle: #77776f;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 0 16px 32px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.45 system-ui, sans-serif;
+}
+header { display: flex; align-items: baseline; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+h1 { margin: 0; font-size: 18px; }
+main { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; }
+.name { font-weight: 600; }
+.image, .status { color: var(--muted); }
+.state::before { content: "●"; margin-right: 6px; color: var(--idle); }
+.state-running .state::before { color: var(--ok); }
+.state-exited .state::before, .state-dead .state::before { color: var(--bad); }
+.state-exited .name, .state-created .name, .state-dead .name { color: var(--muted); }
+.error { color: var(--bad); border: 1px solid var(--bad); padding: 8px 12px; border-radius: 4px; }
+.empty { color: var(--muted); }

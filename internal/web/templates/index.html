@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>scd</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>scd</h1>
+</header>
+<main>
+  {{if .Error}}<p class="error" role="alert">Can't reach the container runtime: {{.Error}}</p>{{end}}
+  {{if .Containers}}
+  <table class="containers">
+    <thead><tr><th>Container</th><th>State</th><th>Status</th><th>Image</th></tr></thead>
+    <tbody>
+    {{range .Containers}}
+      <tr class="container state-{{.State}}" data-id="{{.ID}}">
+        <td class="name">{{.Name}}</td>
+        <td><span class="state">{{.State}}</span></td>
+        <td class="status">{{.Status}}</td>
+        <td class="image">{{.Image}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else if not .Error}}
+  <p class="empty">No containers on this host.</p>
+  {{end}}
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
