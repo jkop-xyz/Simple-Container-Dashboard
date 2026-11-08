@@ -9,9 +9,11 @@ import (
 	"html/template"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,6 +45,14 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 			return fmt.Sprintf("%dh ago", int(d.Hours()))
 		}
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	},
+	"ports": view.Ports,
+	"dict": func(kv ...any) map[string]any {
+		m := map[string]any{}
+		for i := 0; i+1 < len(kv); i += 2 {
+			m[kv[i].(string)] = kv[i+1]
+		}
+		return m
 	},
 	"health": healthText,
 	"cpu":    cpuText,
@@ -111,10 +121,13 @@ func New(deps Deps) *Server {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
 
 type indexData struct {
-	Hostname  string
-	RepoName  string
-	Commit    string
-	RepoError string
+	// BrowserHost is the hostname the browser used to reach the dashboard; port links
+	// point at it.
+	BrowserHost string
+	Hostname    string
+	RepoName    string
+	Commit      string
+	RepoError   string
 	view.Dashboard
 	Error string
 	// Sync is nil when no Deployment Repo is configured.
@@ -127,7 +140,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	data := indexData{Hostname: s.deps.Hostname, RepoName: s.deps.RepoName}
+	data := indexData{Hostname: s.deps.Hostname, RepoName: s.deps.RepoName, BrowserHost: browserHost(r)}
 	status := http.StatusOK
 
 	cs, err := s.containers(ctx)
@@ -394,4 +407,12 @@ func memText(c view.Container) string {
 		return fmt.Sprintf("%.1f GiB", float64(c.Memory)/(1<<30))
 	}
 	return fmt.Sprintf("%.0f MiB", float64(c.Memory)/mib)
+}
+
+// browserHost is the hostname (without port) the request was addressed to.
+func browserHost(r *http.Request) string {
+	if host, _, err := net.SplitHostPort(r.Host); err == nil {
+		return host
+	}
+	return strings.Trim(r.Host, "[]")
 }

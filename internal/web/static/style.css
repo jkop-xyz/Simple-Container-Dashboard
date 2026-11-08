@@ -87,3 +87,8 @@ a { color: inherit; }
 .health-healthy { color: var(--ok); }
 .health-unhealthy { color: var(--bad); font-weight: 600; }
 .health-starting { color: var(--muted); }
+.ports { white-space: normal; }
+.port { margin-right: 6px; }
+a.port { font-weight: 600; text-decoration: none; }
+a.port:hover { text-decoration: underline; }
+.port.text { color: var(--muted); font-size: 12px; }
