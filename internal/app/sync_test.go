@@ -28,6 +28,9 @@ type syncEnv struct {
 func newSyncEnv(t *testing.T, initial map[string]string) *syncEnv {
 	t.Helper()
 	remote := gittest.NewRemote(t)
+	if _, ok := initial[".gitignore"]; !ok {
+		initial = merge(initial, map[string]string{".gitignore": "secrets.env\n"})
+	}
 	remote.Commit("initial", initial)
 	rec := gitOnly()
 	clone := filepath.Join(t.TempDir(), "repo")
