@@ -229,7 +229,11 @@
         <tr class="plan-entry" data-stack="{{.Stack}}" data-outcome="{{.Action}}">
           <td class="name">{{.Stack}}</td>
           <td><span class="action">{{.Action}}</span></td>
-          <td class="reason">{{if eq .Action "invalid"}}This Stack {{end}}{{.Reason}}{{with .Warning}} <span class="warning">({{.}})</span>{{end}}</td>
+          <td class="reason">{{if eq .Action "invalid"}}This Stack {{end}}{{.Reason}}{{with .Warning}} <span class="warning">({{.}})</span>{{end}}
+            {{with .Files}}<details class="files">
+              <summary>{{len .}} file{{if ne (len .) 1}}s{{end}} changed</summary>
+              <ul>{{range .}}<li><code>{{.Path}}</code>{{if .Binary}} <span class="muted">binary</span>{{else}} <span class="add">+{{.Added}}</span> <span class="del">−{{.Deleted}}</span>{{end}}</li>{{end}}</ul>
+            </details>{{end}}</td>
         </tr>
       {{end}}
       </tbody>

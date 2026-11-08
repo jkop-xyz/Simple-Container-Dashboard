@@ -40,6 +40,10 @@ type Entry struct {
 	Warning string
 	// Secrets is the fingerprint of the Stack's secrets.env at planning time.
 	Secrets string
+	// Files are the Stack's changed paths since its last deploy (deploys and redeploys).
+	Files []repo.FileChange
+	// FromTree is the Stack's tree id as last deployed ("" if never).
+	FromTree string
 }
 
 // Plan is a Sync Plan bound to one commit and one selection.
@@ -92,7 +96,7 @@ func Entries(in Input) []Entry {
 		dep, deployed := in.Deployed[s.Name]
 		selected := slices.Contains(in.Selected, s.Name)
 		secrets := in.Secrets[s.Name]
-		e := Entry{Stack: s.Name, Kind: s.Kind, Tree: tree, Warning: s.Warning, Secrets: secrets}
+		e := Entry{Stack: s.Name, Kind: s.Kind, Tree: tree, Warning: s.Warning, Secrets: secrets, FromTree: dep.Tree}
 		switch {
 		case s.Invalid() && deployed:
 			e.Action, e.Reason = Invalid, s.Problem+"; the deployed Stack is left as it is"

@@ -86,7 +86,8 @@ func TestDemoNeedsNothingAndExercisesTheWholeUI(t *testing.T) {
 		`data-stack="jellyfin" data-outcome="redeploy"`,
 		`data-stack="nextcloud" data-outcome="teardown"`,
 		`data-stack="uptime" data-outcome="not selected"`,
-		`data-stack="notes" data-outcome="invalid"`)
+		`data-stack="notes" data-outcome="invalid"`,
+		"1 file changed", "<code>compose.yaml</code>", `class="add">+1<`, `class="del">−1<`)
 
 	post(t, srv, "/apply")
 	stream := follow(t, srv)
