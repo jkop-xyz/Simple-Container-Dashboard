@@ -78,6 +78,7 @@
   <div class="plan">
     <h2>Sync Plan</h2>
     {{if $.Stale}}<p class="stale" role="alert">The selection changed after this Sync. Sync again before applying.</p>{{end}}
+    {{with .Blocked}}<p class="error blocked" role="alert">This plan can't be applied: {{.}}.</p>{{end}}
     {{if eq .From .To}}
     <p class="range">Already at <code title="{{.To}}">{{short .To}}</code>.</p>
     {{else}}

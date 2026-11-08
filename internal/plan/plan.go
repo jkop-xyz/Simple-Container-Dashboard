@@ -38,6 +38,8 @@ type Entry struct {
 	Tree string
 	// Warning is a non-fatal note about the Stack.
 	Warning string
+	// Secrets is the fingerprint of the Stack's secrets.env at planning time.
+	Secrets string
 }
 
 // Plan is a Sync Plan bound to one commit and one selection.
@@ -49,6 +51,8 @@ type Plan struct {
 	Entries []Entry
 	// Selection identifies the selection the plan was computed for.
 	Selection string
+	// Blocked, when set, is why this plan can't be applied at all.
+	Blocked string
 }
 
 // HasChanges reports whether applying the plan would change anything on the host.
@@ -64,6 +68,9 @@ type Input struct {
 	Trees    map[string]string
 	Selected []string
 	Deployed map[string]state.DeployedStack
+	// Secrets maps Stack name to the fingerprint of its secrets.env on the host
+	// (absent or empty when there is none).
+	Secrets map[string]string
 }
 
 // SelectionKey identifies a selection, so a plan can tell when it has gone stale.
@@ -84,7 +91,8 @@ func Entries(in Input) []Entry {
 		tree := in.Trees[s.Name]
 		dep, deployed := in.Deployed[s.Name]
 		selected := slices.Contains(in.Selected, s.Name)
-		e := Entry{Stack: s.Name, Kind: s.Kind, Tree: tree, Warning: s.Warning}
+		secrets := in.Secrets[s.Name]
+		e := Entry{Stack: s.Name, Kind: s.Kind, Tree: tree, Warning: s.Warning, Secrets: secrets}
 		switch {
 		case s.Invalid() && deployed:
 			e.Action, e.Reason = Invalid, s.Problem+"; the deployed Stack is left as it is"
@@ -96,6 +104,8 @@ func Entries(in Input) []Entry {
 			e.Action, e.Reason = Redeploy, "retry: the last Apply failed"
 		case selected && dep.Tree != tree:
 			e.Action, e.Reason = Redeploy, "files changed"
+		case selected && dep.Secrets != secrets:
+			e.Action, e.Reason = Redeploy, "secrets changed"
 		case selected:
 			e.Action, e.Reason = Unchanged, "no changes"
 		case deployed:

@@ -4,7 +4,14 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"io/fs"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -69,7 +76,7 @@ func (e *Engine) Status() Status {
 			s.Stale = plan.SelectionKey(st.Selected) != e.plan.Selection
 		}
 		applying := e.apply != nil && e.apply.Running()
-		s.CanApply = !s.Stale && !s.Running && !applying && e.plan.HasChanges()
+		s.CanApply = !s.Stale && !s.Running && !applying && e.plan.HasChanges() && e.plan.Blocked == ""
 	}
 	return s
 }
@@ -150,23 +157,33 @@ func (e *Engine) sync(ctx context.Context) (*plan.Plan, error) {
 	if err != nil {
 		return nil, err
 	}
+	gitignore, _ := e.Repo.Show(ctx, remote, ".gitignore")
+	if !stacks.IgnoresSecrets(string(gitignore)) {
+		return nil, &repo.Refusal{Reason: "add secrets.env to the Deployment Repo's root .gitignore, " +
+			"so Secrets Files can't be committed by accident"}
+	}
 	ss := stacks.Discover(files, e.Runtime)
-	entries := plan.Entries(plan.Input{
-		Stacks:   ss,
-		Trees:    trees,
-		Selected: st.Selected,
-		Deployed: st.Deployed,
-	})
+	secrets, err := e.secretsFingerprints(ss)
+	if err != nil {
+		return nil, err
+	}
+	in := plan.Input{Stacks: ss, Trees: trees, Selected: st.Selected, Deployed: st.Deployed, Secrets: secrets}
+	entries := plan.Entries(in)
 	if err := e.validate(ctx, remote, ss, entries); err != nil {
 		return nil, err
 	}
-	return &plan.Plan{
+	p := &plan.Plan{
 		From:      head,
 		To:        remote,
 		Commits:   commits,
-		Entries:   plan.Entries(plan.Input{Stacks: ss, Trees: trees, Selected: st.Selected, Deployed: st.Deployed}),
+		Entries:   plan.Entries(in), // re-plan: validation may have invalidated Stacks
 		Selection: plan.SelectionKey(st.Selected),
-	}, nil
+	}
+	if tracked := stacks.TracksSecrets(files); len(tracked) > 0 {
+		p.Blocked = "this commit tracks " + strings.Join(tracked, ", ") +
+			"; scd won't fast-forward the clone, so the host's own Secrets Files are never overwritten"
+	}
+	return p, nil
 }
 
 // validate runs each kind's validator on the Stacks planned for deploy or redeploy, and
@@ -198,4 +215,22 @@ func (e *Engine) validate(ctx context.Context, rev string, ss []stacks.Stack, en
 		}
 	}
 	return nil
+}
+
+// secretsFingerprints hashes each Stack's secrets.env in the clone. scd only ever reads
+// these files.
+func (e *Engine) secretsFingerprints(ss []stacks.Stack) (map[string]string, error) {
+	out := map[string]string{}
+	for _, s := range ss {
+		b, err := os.ReadFile(filepath.Join(e.Repo.Path, s.Name, stacks.SecretsFile))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		sum := sha256.Sum256(b)
+		out[s.Name] = hex.EncodeToString(sum[:])
+	}
+	return out, nil
 }

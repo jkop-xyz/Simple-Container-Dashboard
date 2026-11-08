@@ -41,13 +41,22 @@ type Compose struct {
 
 // Deploy runs `compose up -d --remove-orphans` for the Stack. Images are pulled only if
 // missing: Apply never updates images of its own accord.
+// When the Stack has a secrets.env it is passed as the env file; scd only reads it.
 func (c Compose) Deploy(ctx context.Context, s stacks.Stack, out io.Writer) error {
 	dir := filepath.Join(c.RepoPath, s.Name)
-	return c.compose(ctx, out,
-		"--project-name", s.ProjectName(),
-		"--project-directory", dir,
-		"--file", filepath.Join(dir, stacks.ComposeFile),
-		"up", "--detach", "--remove-orphans")
+	args := []string{"--project-name", s.ProjectName(), "--project-directory", dir}
+	args = append(args, c.envFile(s)...)
+	args = append(args, "--file", filepath.Join(dir, stacks.ComposeFile), "up", "--detach", "--remove-orphans")
+	return c.compose(ctx, out, args...)
+}
+
+// envFile returns the --env-file arguments for the Stack's secrets.env, if it has one.
+func (c Compose) envFile(s stacks.Stack) []string {
+	p := filepath.Join(c.RepoPath, s.Name, stacks.SecretsFile)
+	if _, err := os.Stat(p); err != nil {
+		return nil
+	}
+	return []string{"--env-file", p}
 }
 
 // Teardown runs `compose down --remove-orphans` by project name, without --volumes.
@@ -68,8 +77,9 @@ func (c Compose) Validate(ctx context.Context, s stacks.Stack, files map[string]
 		dir = c.RepoPath // a new Stack's directory only appears with the Apply
 	}
 	_, err := c.Runner.Run(ctx, runner.Cmd{
-		Name:  "docker",
-		Args:  []string{"compose", "--project-name", s.ProjectName(), "--project-directory", dir, "--file", "-", "config", "--quiet"},
+		Name: "docker",
+		Args: append(append([]string{"compose", "--project-name", s.ProjectName(), "--project-directory", dir},
+			c.envFile(s)...), "--file", "-", "config", "--quiet"),
 		Stdin: bytes.NewReader(files[stacks.ComposeFile]),
 	})
 	var exit *runner.ExitError

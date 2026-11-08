@@ -68,7 +68,7 @@ func TestQuadletStacksAreInvalidOnDockerHosts(t *testing.T) {
 
 func TestComposeStacksAreInvalidOnPodmanHosts(t *testing.T) {
 	remote := gittest.NewRemote(t)
-	remote.Commit("init", compose("app"))
+	remote.Commit("init", merge(compose("app"), map[string]string{".gitignore": "secrets.env\n"}))
 	h := startDashboard(t, withRepo(remote.URL, filepath.Join(t.TempDir(), "repo")), func(o *app.Options) {
 		o.Config.Runtime = config.Podman
 	})

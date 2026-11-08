@@ -67,6 +67,11 @@ func (r *Remote) Commit(msg string, files map[string]string) string {
 		}
 	}
 	r.git(r.work, "add", "-A")
+	for name, content := range files {
+		if content != "" { // force-add, so tests can commit files the repo's .gitignore excludes
+			r.git(r.work, "add", "--force", "--", name)
+		}
+	}
 	r.git(r.work, "commit", "--quiet", "--allow-empty", "-m", msg)
 	r.git(r.work, "push", "--quiet", "origin", "main")
 	return strings.TrimSpace(r.git(r.work, "rev-parse", "HEAD"))

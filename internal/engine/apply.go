@@ -133,6 +133,9 @@ func (e *Engine) checkApplicable() error {
 	if plan.SelectionKey(st.Selected) != e.plan.Selection {
 		return ErrStalePlan
 	}
+	if e.plan.Blocked != "" {
+		return errors.New(e.plan.Blocked)
+	}
 	if !e.plan.HasChanges() {
 		return ErrNothingToDo
 	}
@@ -227,9 +230,9 @@ func (e *Engine) record(entry plan.Entry, res StackResult) error {
 			prev.Failed = true
 			st.Deployed[entry.Stack] = prev
 		case res.Err == "":
-			st.Deployed[entry.Stack] = state.DeployedStack{Kind: entry.Kind, Tree: entry.Tree}
+			st.Deployed[entry.Stack] = state.DeployedStack{Kind: entry.Kind, Tree: entry.Tree, Secrets: entry.Secrets}
 		default:
-			st.Deployed[entry.Stack] = state.DeployedStack{Kind: entry.Kind, Tree: entry.Tree, Failed: true}
+			st.Deployed[entry.Stack] = state.DeployedStack{Kind: entry.Kind, Tree: entry.Tree, Secrets: entry.Secrets, Failed: true}
 		}
 	})
 }

@@ -130,6 +130,12 @@ func classify(s *Stack, runtime config.Runtime) {
 	if s.Problem != "" {
 		return
 	}
+	for _, f := range s.Files {
+		if path.Base(f) == SecretsFile {
+			s.Problem = "has a secrets.env committed to git (" + s.Path(f) + "); remove it from the repo and keep it only on the host"
+			return
+		}
+	}
 	switch {
 	case s.Kind == Compose && runtime == config.Podman:
 		s.Problem = "is a Compose Stack, but this is a Podman host (Podman hosts run Quadlet Stacks)"
@@ -182,3 +188,26 @@ func others(names []string, self string) []string {
 
 // Path joins a Stack-relative file to the Stack's directory.
 func (s Stack) Path(file string) string { return path.Join(s.Name, file) }
+
+// TracksSecrets returns the tracked paths named secrets.env in a repo file list.
+func TracksSecrets(files []string) []string {
+	var out []string
+	for _, f := range files {
+		if path.Base(f) == SecretsFile {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// IgnoresSecrets reports whether a root .gitignore excludes secrets.env in every Stack
+// directory.
+func IgnoresSecrets(gitignore string) bool {
+	for _, line := range strings.Split(gitignore, "\n") {
+		switch strings.TrimSpace(line) {
+		case SecretsFile, "**/" + SecretsFile, "*/" + SecretsFile, "/*/" + SecretsFile:
+			return true
+		}
+	}
+	return false
+}

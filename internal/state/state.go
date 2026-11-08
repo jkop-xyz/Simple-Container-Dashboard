@@ -31,6 +31,9 @@ type DeployedStack struct {
 	Tree string `json:"tree"`
 	// Failed marks a Stack whose last deploy failed; it is retried on the next Apply.
 	Failed bool `json:"failed,omitempty"`
+	// Secrets is the fingerprint of the Stack's secrets.env when it was deployed
+	// (empty when there was none).
+	Secrets string `json:"secrets,omitempty"`
 }
 
 // Store reads and writes the state file. Safe for concurrent use.
