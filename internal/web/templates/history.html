@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apply history · {{.Hostname}}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1><a href="/">scd</a></h1>
+  <span class="meta">host: <b class="hostname">{{.Hostname}}</b></span>
+  <span class="meta">Apply history</span>
+</header>
+<main>
+  <p><a href="/">← back to the dashboard</a></p>
+  {{range .History}}
+  <section class="history-entry{{if not .OK}} failed{{end}}">
+    <h2>{{when .Finished}}
+      <span class="meta"><code title="{{.From}}">{{short .From}}</code> → <code title="{{.To}}">{{short .To}}</code></span>
+      {{if .OK}}<span class="ok">✓</span>{{else}}<span class="bad">✗</span>{{end}}</h2>
+    {{with .Error}}<p class="error">Stopped before deploying anything: {{.}}</p>{{end}}
+    {{if .Results}}
+    <table>
+      <thead><tr><th>Stack</th><th>Action</th><th>Outcome</th></tr></thead>
+      <tbody>
+      {{range .Results}}
+        <tr class="history-result" data-stack="{{.Stack}}">
+          <td class="name">{{.Stack}}</td><td>{{.Action}}</td>
+          <td>{{if .Error}}<span class="bad">failed:</span> <pre class="history-error">{{.Error}}</pre>{{else}}<span class="ok">ok</span>{{end}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{end}}
+  </section>
+  {{else}}
+  <p class="empty">No Applies yet.</p>
+  {{end}}
+</main>
+</body>
+</html>

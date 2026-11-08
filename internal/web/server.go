@@ -4,6 +4,7 @@ package web
 import (
 	"context"
 	"embed"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"log/slog"
@@ -27,6 +28,19 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 var pages = template.Must(template.New("").Funcs(template.FuncMap{
+	"when": func(t time.Time) string { return t.Local().Format("2006-01-02 15:04:05") },
+	"ago": func(t time.Time) string {
+		d := time.Since(t).Round(time.Minute)
+		switch {
+		case d < time.Minute:
+			return "just now"
+		case d < time.Hour:
+			return fmt.Sprintf("%dm ago", int(d.Minutes()))
+		case d < 48*time.Hour:
+			return fmt.Sprintf("%dh ago", int(d.Hours()))
+		}
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	},
 	"short": func(commit string) string {
 		if len(commit) > 7 {
 			return commit[:7]
@@ -80,6 +94,7 @@ func New(deps Deps) *Server {
 	s.mux.HandleFunc("POST /sync", s.sync)
 	s.mux.HandleFunc("POST /apply", s.apply)
 	s.mux.HandleFunc("GET /apply/stream", s.applyStream)
+	s.mux.HandleFunc("GET /history", s.history)
 	return s
 }
 
@@ -94,6 +109,8 @@ type indexData struct {
 	Error string
 	// Sync is nil when no Deployment Repo is configured.
 	Sync *engine.Status
+	// LastApply is the most recent finished Apply, if any.
+	LastApply *state.ApplyRecord
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
@@ -125,6 +142,9 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusInternalServerError
 	}
 	data.Dashboard = view.Build(cs, ss, st.IsSelected)
+	if len(st.History) > 0 {
+		data.LastApply = &st.History[0]
+	}
 	if s.deps.Engine != nil {
 		status := s.deps.Engine.Status()
 		data.Sync = &status
@@ -246,4 +266,21 @@ func (s *Server) applyStream(w http.ResponseWriter, r *http.Request) {
 			offset += len(lines)
 		}
 	})
+}
+
+// history shows the most recent Applies.
+func (s *Server) history(w http.ResponseWriter, r *http.Request) {
+	st, err := s.deps.State.Get()
+	if err != nil {
+		http.Error(w, "reading state: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	data := struct {
+		Hostname string
+		History  []state.ApplyRecord
+	}{s.deps.Hostname, st.History}
+	if err := pages.ExecuteTemplate(w, "history.html", data); err != nil {
+		slog.Error("rendering history", "err", err)
+	}
 }

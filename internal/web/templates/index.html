@@ -11,6 +11,8 @@
   <h1>scd</h1>
   <span class="meta">host: <b class="hostname">{{.Hostname}}</b></span>
   {{if .RepoName}}<span class="meta">repo: <b class="repo">{{.RepoName}}</b>{{if .Commit}} @ <code class="commit" title="{{.Commit}}">{{short .Commit}}</code>{{end}}</span>{{end}}
+  {{with .LastApply}}<span class="meta last-apply">last Apply: <a href="/history" title="{{when .Finished}}">{{ago .Finished}}</a>
+    {{if .OK}}<span class="ok">✓</span>{{else}}<span class="bad">✗ {{if .Error}}stopped{{else}}{{.Failures}} failed{{end}}</span>{{end}}</span>{{end}}
   {{if .Sync}}<span class="actions">
     <form method="post" action="/sync"><button class="sync-button">Sync</button></form>
     <form method="post" action="/apply"><button class="apply-button"{{if not .Sync.CanApply}} disabled{{end}}>Apply</button></form>
