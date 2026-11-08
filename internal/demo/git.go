@@ -55,6 +55,9 @@ func (g *fakeGit) latestFiles() map[string]string {
 	return g.commits[len(g.commits)-1].files
 }
 
+// trees remembers each tree id's files (relative to the tree), so diff can compare them.
+var trees sync.Map
+
 // tree is the tree id of a directory at a commit: a hash of everything under it.
 func tree(files map[string]string, dir string) string {
 	var names []string
@@ -65,10 +68,65 @@ func tree(files map[string]string, dir string) string {
 	}
 	sort.Strings(names)
 	h := sha1.New()
+	sub := map[string]string{}
 	for _, n := range names {
 		fmt.Fprintf(h, "%s\x00%s\x00", n, files[n])
+		sub[strings.TrimPrefix(n, dir+"/")] = files[n]
 	}
-	return hex.EncodeToString(h.Sum(nil))
+	id := hex.EncodeToString(h.Sum(nil))
+	trees.Store(id, sub)
+	return id
+}
+
+func lines(s string) map[string]int {
+	out := map[string]int{}
+	for _, l := range strings.Split(strings.TrimSuffix(s, "\n"), "\n") {
+		if s != "" {
+			out[l]++
+		}
+	}
+	return out
+}
+
+// diffTrees emulates `git diff --numstat -z` between two of the demo's tree ids.
+func diffTrees(from, to string) string {
+	load := func(id string) map[string]string {
+		if v, ok := trees.Load(id); ok {
+			return v.(map[string]string)
+		}
+		return map[string]string{} // the empty tree
+	}
+	a, b := load(from), load(to)
+	var paths []string
+	for p := range a {
+		paths = append(paths, p)
+	}
+	for p := range b {
+		if _, ok := a[p]; !ok {
+			paths = append(paths, p)
+		}
+	}
+	sort.Strings(paths)
+	var out strings.Builder
+	for _, p := range paths {
+		if a[p] == b[p] {
+			continue
+		}
+		la, lb := lines(a[p]), lines(b[p])
+		add, del := 0, 0
+		for l, n := range lb {
+			if n > la[l] {
+				add += n - la[l]
+			}
+		}
+		for l, n := range la {
+			if n > lb[l] {
+				del += n - lb[l]
+			}
+		}
+		fmt.Fprintf(&out, "%d\t%d\t%s\x00", add, del, p)
+	}
+	return out.String()
 }
 
 func (g *fakeGit) resolve(rev string) (int, bool) {
@@ -119,6 +177,8 @@ func (g *fakeGit) run(cmd runner.Cmd) (runner.Result, error) {
 		return ok(g.commits[i].hash + "\n")
 	case "symbolic-ref":
 		return ok("main\n")
+	case "diff": // --numstat -z --no-renames from to
+		return ok(diffTrees(args[len(args)-2], args[len(args)-1]))
 	case "fetch", "status":
 		return ok("") // the remote is in memory; the clone is always clean
 	case "merge-base": // --is-ancestor a b

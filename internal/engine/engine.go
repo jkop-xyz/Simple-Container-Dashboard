@@ -179,6 +179,14 @@ func (e *Engine) sync(ctx context.Context) (*plan.Plan, error) {
 		Entries:   plan.Entries(in), // re-plan: validation may have invalidated Stacks
 		Selection: plan.SelectionKey(st.Selected),
 	}
+	for i := range p.Entries {
+		pe := &p.Entries[i]
+		if (pe.Action == plan.Deploy || pe.Action == plan.Redeploy) && pe.Tree != "" && pe.Tree != pe.FromTree {
+			if pe.Files, err = e.Repo.DiffTrees(ctx, pe.FromTree, pe.Tree); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if tracked := stacks.TracksSecrets(files); len(tracked) > 0 {
 		p.Blocked = "this commit tracks " + strings.Join(tracked, ", ") +
 			"; scd won't fast-forward the clone, so the host's own Secrets Files are never overwritten"

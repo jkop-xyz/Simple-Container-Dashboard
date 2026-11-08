@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner"
@@ -241,4 +242,42 @@ func (r *Repo) FastForward(ctx context.Context, rev string) error {
 func (r *Repo) Show(ctx context.Context, rev, path string) ([]byte, error) {
 	out, err := r.git(ctx, "show", rev+":"+path)
 	return []byte(out), err
+}
+
+// EmptyTree is git's id for a tree with nothing in it, to diff new Stacks against.
+const EmptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+// FileChange is one changed path between two trees, without its content.
+type FileChange struct {
+	Path           string
+	Added, Deleted int
+	Binary         bool
+}
+
+// DiffTrees lists the paths that differ between two tree ids (relative to those trees),
+// with line counts. Contents are never read into scd.
+func (r *Repo) DiffTrees(ctx context.Context, from, to string) ([]FileChange, error) {
+	if from == "" {
+		from = EmptyTree
+	}
+	out, err := r.git(ctx, "diff", "--numstat", "-z", "--no-renames", from, to)
+	if err != nil {
+		return nil, err
+	}
+	var changes []FileChange
+	for _, rec := range strings.Split(out, "\x00") {
+		f := strings.SplitN(rec, "\t", 3)
+		if len(f) != 3 {
+			continue
+		}
+		c := FileChange{Path: strings.TrimLeft(f[2], "\n")}
+		if f[0] == "-" {
+			c.Binary = true
+		} else {
+			c.Added, _ = strconv.Atoi(strings.TrimSpace(f[0]))
+			c.Deleted, _ = strconv.Atoi(strings.TrimSpace(f[1]))
+		}
+		changes = append(changes, c)
+	}
+	return changes, nil
 }
