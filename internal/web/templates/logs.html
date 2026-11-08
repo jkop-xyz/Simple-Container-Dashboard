@@ -9,13 +9,13 @@
 <body class="logs-page">
 <header class="topbar">
   <div class="topbar-inner">
-    <a class="brand" href="/" aria-label="scd home">{{template "logo"}}<span>scd</span></a>
+    {{template "brand"}}
     <div class="host"><span class="host-label">Host</span><span class="hostname">{{.Hostname}}</span></div>
     <div class="chips"><span class="chip">logs</span></div>
+    {{template "back"}}
   </div>
 </header>
 <main class="page">
-  <a class="back" href="/">← back to the dashboard</a>
   <div class="card log-card">
     <div class="card-head">
       <span class="state-{{.C.State}} cname"><span class="dot" aria-hidden="true"></span><h2 class="container-name">{{.C.Name}}</h2></span>

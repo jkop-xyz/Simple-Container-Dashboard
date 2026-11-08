@@ -114,5 +114,5 @@ func TestDemoLogsStream(t *testing.T) {
 	_, rest, _ := strings.Cut(page, `href="/containers/`)
 	id, _, _ := strings.Cut(rest, "/logs")
 	logs := get(t, srv, "/containers/"+id+"/logs")
-	contains(t, logs, "container-name", "Pause", "back to the dashboard")
+	contains(t, logs, "container-name", "Pause", "Back to the dashboard")
 }

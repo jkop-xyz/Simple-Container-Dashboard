@@ -9,7 +9,7 @@
 <body>
 <header class="topbar">
   <div class="topbar-inner">
-    <a class="brand" href="/" aria-label="scd home">{{template "logo"}}<span>scd</span></a>
+    {{template "brand"}}
     <div class="host">
       <span class="host-label">Host</span>
       <span class="hostname">{{.Hostname}}</span>
@@ -54,7 +54,8 @@
 
   {{with .Sync}}{{template "sync" .}}{{end}}
 
-  {{if .Groups}}<h2 class="section-title">Stacks</h2>{{end}}
+  {{if or .Groups .Other}}<h2 class="section-title">Stacks</h2>{{end}}
+  <div class="stack-grid">
   {{range .Groups}}
   <section class="stack card{{if not .Selected}} unselected{{end}}{{if .Stack.Problem}} is-invalid{{end}}" data-stack="{{.Stack.Name}}">
     <div class="card-head">
@@ -104,7 +105,9 @@
     </div>
     {{template "containers" (dict "Rows" .Other "Host" .BrowserHost)}}
   </section>
-  {{else if and (not .Groups) (not .Error)}}
+  {{end}}
+  </div>
+  {{if and (not .Groups) (not .Other) (not .Error)}}
   <div class="empty-state"><p class="empty">No containers on this host.</p></div>
   {{end}}
 </main>
@@ -230,3 +233,9 @@
 {{end}}
 
 {{define "logo"}}<svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="currentColor"/><path d="M9 11h14v4H9zM9 17h9v4H9z" fill="#fff"/></svg>{{end}}
+
+{{define "brand"}}<a class="brand" href="/" aria-label="scd: back to the dashboard">{{template "logo"}}<span class="brand-text"><span class="brand-name">scd</span><span class="brand-sub">Simple Container Dashboard</span></span></a>{{end}}
+
+{{define "back"}}<div class="actions"><a class="btn btn-secondary back-btn" href="/">
+  <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  Back to the dashboard</a></div>{{end}}

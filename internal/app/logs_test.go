@@ -138,7 +138,7 @@ func TestLogsPage(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("status %d", code)
 	}
-	assertContains(t, page, "jellyfin", `data-stream="/containers/abc/logs/stream"`, `href="/"`, "back to the dashboard",
+	assertContains(t, page, "jellyfin", `data-stream="/containers/abc/logs/stream"`, `href="/"`, "Back to the dashboard",
 		"last 500 lines, then live", `log-pause"`)
 
 	if code, _ := h.get("/containers/nope/logs"); code != http.StatusNotFound {
