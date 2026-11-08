@@ -157,10 +157,21 @@ func (e *Engine) runApply(run *ApplyRun) {
 		run.mu.Lock()
 		run.finished = time.Now()
 		run.mu.Unlock()
-		if err := e.State.Update(func(st *state.State) { st.AddHistory(run.Record()) }); err != nil {
+		rec := run.Record()
+		rec.ID = NewApplyID(run.Started, run.Plan.To)
+		if err := e.Outputs.Save(rec.ID, run.Output.Lines()); err != nil {
+			slog.Error("saving Apply output", "err", err)
+			rec.ID = "" // no output to link to
+		}
+		var dropped []state.ApplyRecord
+		if err := e.State.Update(func(st *state.State) { dropped = st.AddHistory(rec) }); err != nil {
 			run.Output.line("!!! saving Apply history: " + err.Error())
 		}
-		rec := run.Record()
+		for _, d := range dropped {
+			if d.ID != "" {
+				e.Outputs.Remove(d.ID)
+			}
+		}
 		slog.Info("Apply finished", "to", rec.To, "ok", rec.OK(), "failed", rec.Failures(), "error", rec.Error)
 		run.Output.Close()
 		close(run.Done)
@@ -256,6 +267,9 @@ type Deployers = map[stacks.Kind]deploy.Deployer
 // Record is the Apply as a history entry.
 func (r *ApplyRun) Record() state.ApplyRecord {
 	rec := state.ApplyRecord{From: r.Plan.From, To: r.Plan.To, Started: r.Started, Finished: r.Finished()}
+	for _, c := range r.Plan.Commits {
+		rec.Commits = append(rec.Commits, state.Commit{Hash: c.Hash, Subject: c.Subject})
+	}
 	if err := r.Err(); err != nil {
 		rec.Error = err.Error()
 	}

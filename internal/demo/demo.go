@@ -20,6 +20,7 @@ import (
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/config"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/dockerapi"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/dockerapi/dockertest"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/engine"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/stacks"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/state"
@@ -176,8 +177,19 @@ func (d *Demo) seedState() error {
 		for _, name := range s.Selected {
 			s.Deployed[name] = state.DeployedStack{Kind: stacks.Compose, Tree: tree(files, name)}
 		}
+		id := engine.NewApplyID(time.Now().Add(-26*time.Hour), d.git.commits[0].hash)
+		engine.Outputs{Dir: filepath.Join(d.dir, "data", "applies")}.Save(id, []string{
+			"==> Fast-forwarding the clone to " + d.git.commits[0].hash[:7],
+			"==> deploy homeassistant (selected and not deployed yet)", " Container homeassistant-core-1  Started",
+			"==> deploy jellyfin (selected and not deployed yet)", " Container jellyfin-server-1  Started",
+			"==> deploy nextcloud (selected and not deployed yet)", " Container nextcloud-app-1  Started", " Container nextcloud-db-1  Started",
+			"==> deploy traefik (selected and not deployed yet)", " Container traefik-proxy-1  Started",
+			"==> Apply finished",
+		})
 		s.AddHistory(state.ApplyRecord{
+			ID:   id,
 			From: d.git.commits[0].hash, To: d.git.commits[0].hash,
+			Commits: []state.Commit{{Hash: d.git.commits[0].hash, Subject: d.git.commits[0].subject}},
 			Started: time.Now().Add(-26 * time.Hour), Finished: time.Now().Add(-26*time.Hour + 40*time.Second),
 			Results: []state.StackResult{
 				{Stack: "homeassistant", Action: "deploy"}, {Stack: "jellyfin", Action: "deploy"},

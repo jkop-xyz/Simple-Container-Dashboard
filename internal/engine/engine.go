@@ -33,6 +33,8 @@ type Engine struct {
 	Deployers Deployers
 	// Runtime is the host's runtime; Stacks of the other kind are Invalid.
 	Runtime config.Runtime
+	// Outputs keeps each Apply's output for the history.
+	Outputs Outputs
 
 	mu       sync.Mutex
 	inflight *call

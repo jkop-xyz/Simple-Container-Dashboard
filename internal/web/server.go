@@ -38,6 +38,8 @@ var staticFS embed.FS
 
 var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"when": func(t time.Time) string { return t.Local().Format("2006-01-02 15:04:05") },
+	"rel":  relTime,
+	"took": took,
 	"ago": func(t time.Time) string {
 		d := time.Since(t).Round(time.Minute)
 		switch {
@@ -177,6 +179,7 @@ func New(deps Deps) *Server {
 	s.mux.HandleFunc("POST /apply", s.apply)
 	s.mux.HandleFunc("GET /apply/stream", s.applyStream)
 	s.mux.HandleFunc("GET /history", s.history)
+	s.mux.HandleFunc("GET /history/{id}", s.historyOutput)
 	s.mux.HandleFunc("GET /api/status", s.status)
 	s.mux.HandleFunc("GET /containers/{id}/logs", s.logsPage)
 	s.mux.HandleFunc("GET /containers/{id}/logs/stream", s.logsStream)
@@ -721,4 +724,62 @@ func truthy(v any) bool {
 		return len(x) > 0
 	}
 	return true
+}
+
+// relTime is a friendly local time: "today 18:22", "yesterday 18:22", "Mon 18:22", or a date.
+func relTime(t time.Time) string {
+	now := time.Now().Local()
+	t = t.Local()
+	day := func(x time.Time) time.Time { y, m, d := x.Date(); return time.Date(y, m, d, 0, 0, 0, 0, x.Location()) }
+	switch days := int(day(now).Sub(day(t)).Hours() / 24); {
+	case days == 0:
+		return "today " + t.Format("15:04")
+	case days == 1:
+		return "yesterday " + t.Format("15:04")
+	case days > 1 && days < 7:
+		return t.Format("Mon 15:04")
+	}
+	return t.Format("2 Jan 2006 15:04")
+}
+
+// took renders a duration compactly: "850ms", "12s", "3m 05s".
+func took(d time.Duration) string {
+	switch {
+	case d < time.Second:
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	return fmt.Sprintf("%dm %02ds", int(d.Minutes()), int(d.Seconds())%60)
+}
+
+// historyOutput shows the kept output of one Apply.
+func (s *Server) historyOutput(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	st, err := s.deps.State.Get()
+	if err != nil {
+		http.Error(w, "reading state: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var rec *state.ApplyRecord
+	for i := range st.History {
+		if st.History[i].ID == id && id != "" {
+			rec = &st.History[i]
+		}
+	}
+	if rec == nil || s.deps.Engine == nil {
+		http.Error(w, "no Apply "+id+" in the history", http.StatusNotFound)
+		return
+	}
+	lines, ok, err := s.deps.Engine.Outputs.Load(id)
+	if err != nil {
+		http.Error(w, "reading Apply output: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	render(w, http.StatusOK, "applyoutput.html", struct {
+		Hostname string
+		Rec      *state.ApplyRecord
+		Lines    []string
+		Kept     bool
+	}{s.deps.Hostname, rec, lines, ok})
 }

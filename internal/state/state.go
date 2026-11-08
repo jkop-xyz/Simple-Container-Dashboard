@@ -32,6 +32,8 @@ const HistoryLimit = 20
 
 // ApplyRecord is one finished Apply.
 type ApplyRecord struct {
+	// ID names the Apply; its output is kept in a file named after it.
+	ID       string    `json:"id,omitempty"`
 	From     string    `json:"from"`
 	To       string    `json:"to"`
 	Started  time.Time `json:"started"`
@@ -39,7 +41,18 @@ type ApplyRecord struct {
 	// Error is set when the Apply stopped before deploying anything.
 	Error   string        `json:"error,omitempty"`
 	Results []StackResult `json:"results"`
+	// Commits are the commits this Apply rolled out, newest first.
+	Commits []Commit `json:"commits,omitempty"`
 }
+
+// Commit is one rolled-out commit.
+type Commit struct {
+	Hash    string `json:"hash"`
+	Subject string `json:"subject"`
+}
+
+// Duration is how long the Apply took.
+func (r ApplyRecord) Duration() time.Duration { return r.Finished.Sub(r.Started) }
 
 // StackResult is one Stack's outcome in an Apply.
 type StackResult struct {
@@ -74,11 +87,14 @@ func (r ApplyRecord) Failures() int {
 }
 
 // AddHistory records an Apply, keeping the newest HistoryLimit entries.
-func (st *State) AddHistory(r ApplyRecord) {
+// It returns the records that fell off the end, so their output can be removed.
+func (st *State) AddHistory(r ApplyRecord) (dropped []ApplyRecord) {
 	st.History = append([]ApplyRecord{r}, st.History...)
 	if len(st.History) > HistoryLimit {
+		dropped = append(dropped, st.History[HistoryLimit:]...)
 		st.History = st.History[:HistoryLimit]
 	}
+	return dropped
 }
 
 // DeployedStack is what Apply last did for one Stack.

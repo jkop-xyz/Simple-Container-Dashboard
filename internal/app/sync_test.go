@@ -19,10 +19,11 @@ import (
 // syncEnv is a dashboard whose Deployment Repo is a real local git remote.
 type syncEnv struct {
 	*harness
-	remote *gittest.Remote
-	rec    *runnertest.Fake
-	clone  string
-	state  *state.Store
+	remote  *gittest.Remote
+	rec     *runnertest.Fake
+	clone   string
+	state   *state.Store
+	dataDir string
 }
 
 func newSyncEnv(t *testing.T, initial map[string]string) *syncEnv {
@@ -39,7 +40,7 @@ func newSyncEnv(t *testing.T, initial map[string]string) *syncEnv {
 		o.Runner = rec
 		o.DataDir = dataDir
 	})
-	return &syncEnv{harness: h, remote: remote, rec: rec, clone: clone, state: state.Open(filepath.Join(dataDir, "state.json"))}
+	return &syncEnv{harness: h, remote: remote, rec: rec, clone: clone, state: state.Open(filepath.Join(dataDir, "state.json")), dataDir: dataDir}
 }
 
 // sync presses the Sync button and returns the dashboard it lands on.
