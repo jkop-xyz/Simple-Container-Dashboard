@@ -42,7 +42,7 @@ func TestFiltersNarrowTheContainerList(t *testing.T) {
 		if got := strings.Join(names(body), ","); got != want {
 			t.Errorf("filter=%s shows %q, want %q", filter, got, want)
 		}
-		assertContains(t, body, "Showing only", `href="/"`, "Show everything", `aria-current="true"`)
+		assertContains(t, body, "Showing only", `href="/"`, "Show everything", `nav-item is-active" href="/?filter=`+filter+`" aria-current="page"`)
 		if strings.Contains(body, "Not on this host") {
 			t.Errorf("filter=%s still lists inactive Stacks", filter)
 		}
@@ -52,9 +52,11 @@ func TestFiltersNarrowTheContainerList(t *testing.T) {
 func TestTilesLinkToFiltersAndCountTheWholeHost(t *testing.T) {
 	e := filterEnv(t)
 	_, body := e.get("/?filter=unmanaged")
-	// Tiles keep describing the whole host while a filter is active.
-	assertContains(t, body, `data-tile="running">3<small>/ 4</small>`, `data-tile="attention">1<`,
-		`href="/?filter=stopped"`, `href="/?filter=attention"`, `href="/?filter=selected"`, "1 not running · show")
+	// The side navigation keeps describing the whole host while a filter is active.
+	assertContains(t, body, `href="/?filter=attention"`, `<span class="nav-count nav-count-bad">1</span>`,
+		`href="/?filter=stopped"`, `href="/?filter=selected"`)
+	_, overview := e.get("/")
+	assertContains(t, overview, `data-tile="running">3<small>/ 4</small>`, `data-tile="attention">1<`, "1 not running · show")
 	_, all := e.get("/")
 	if strings.Contains(all, "Showing only") {
 		t.Error("no filter, but the filter bar shows")

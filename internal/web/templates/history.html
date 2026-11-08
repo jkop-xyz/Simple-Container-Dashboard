@@ -7,15 +7,7 @@
 {{template "head"}}
 </head>
 <body>
-<header class="topbar">
-  <div class="topbar-inner">
-    {{template "brand"}}
-    <div class="host"><span class="host-label">Host</span><span class="hostname">{{.Hostname}}</span></div>
-    <div class="chips"><span class="chip">Apply history</span></div>
-    {{template "back"}}
-  </div>
-</header>
-<main class="page page-narrow">
+{{template "shell-start" (dict "Hostname" .Hostname "Page" "history" "Crumb" "Apply history")}}
   <h1 class="section-title page-title">Apply history <span class="muted">· last 20</span></h1>
   <ol class="timeline">
   {{range .History}}
@@ -60,6 +52,6 @@
   <li class="empty-state"><p class="empty">No Applies yet.</p></li>
   {{end}}
   </ol>
-</main>
+{{template "shell-end"}}
 </body>
 </html>

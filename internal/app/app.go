@@ -53,6 +53,9 @@ type Options struct {
 	Demo bool
 	// WatchFor and WatchEvery tune the post-Apply health check (0 = the defaults).
 	WatchFor, WatchEvery time.Duration
+	// SampleEvery, when set, samples container usage in the background for the CPU and
+	// memory charts. Off by default (tests); serve and demo turn it on.
+	SampleEvery time.Duration
 }
 
 // App is a wired-up dashboard.
@@ -64,6 +67,8 @@ type App struct {
 	repo    *repo.Repo
 	cloner  *cloner
 	engine  *engine.Engine
+	web     *web.Server
+	sample  time.Duration
 	missing []string
 	runner  runner.Runner
 	look    hostcheck.LookPath
@@ -169,7 +174,9 @@ func New(opts Options) (*App, error) {
 	}
 	checker := &release.Checker{Current: opts.Version, Latest: opts.LatestRelease}
 	deps.NewerRelease = checker.Newer
-	a.Handler = web.New(deps)
+	a.web = web.New(deps)
+	a.Handler = a.web
+	a.sample = opts.SampleEvery
 	return a, nil
 }
 
@@ -195,6 +202,9 @@ func (a *App) checkTools(ctx context.Context) {
 // It also checks which external tools are missing.
 func (a *App) Start(ctx context.Context) error {
 	a.checkTools(ctx)
+	if a.sample > 0 {
+		go a.web.Sample(ctx, a.sample)
+	}
 	if a.cloner == nil {
 		return nil
 	}

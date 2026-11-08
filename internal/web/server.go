@@ -53,6 +53,21 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	},
 	"ports": view.Ports,
+	"sicon": sicon,
+	// memBar sizes a container's memory bar relative to the busiest container.
+	"memBar": func(mem, peak uint64) float64 {
+		if peak == 0 {
+			return 0
+		}
+		return float64(mem) / float64(peak) * 100
+	},
+	"navCount": navCount,
+	"title": func(s string) string {
+		if s == "" {
+			return s
+		}
+		return strings.ToUpper(s[:1]) + s[1:]
+	},
 	"ifelse": func(cond any, a, b any) any {
 		if truthy(cond) {
 			return a
@@ -178,6 +193,7 @@ type Server struct {
 	mux     *http.ServeMux
 	usage   usage.Collector
 	crashes crashloop.Tracker
+	metrics metrics
 }
 
 // New returns the dashboard handler.
@@ -193,6 +209,7 @@ func New(deps Deps) *Server {
 	s.mux.HandleFunc("GET /history", s.history)
 	s.mux.HandleFunc("GET /history/{id}", s.historyOutput)
 	s.mux.HandleFunc("GET /api/status", s.status)
+	s.mux.HandleFunc("GET /api/metrics", s.metricsJSON)
 	s.mux.HandleFunc("GET /containers/{id}/logs", s.logsPage)
 	s.mux.HandleFunc("GET /containers/{id}/logs/stream", s.logsStream)
 	s.mux.HandleFunc("GET /units/{unit}/logs", s.unitLogsPage)
@@ -226,6 +243,11 @@ type indexData struct {
 	Problems []view.Problem
 	// Filter is the active filter's name and FilterLabel what it shows ("" = everything).
 	Filter, FilterLabel string
+	// Sparks are the containers' CPU sparkline paths; MaxMem scales the memory bars.
+	Sparks map[string]string
+	MaxMem uint64
+	// Counts are per-filter counts for the side navigation.
+	Counts map[string]int
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
@@ -262,6 +284,17 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		_, full.Groups[i].Deployed = st.Deployed[full.Groups[i].Stack.Name]
 	}
 	data.Overview, data.Problems = full.Summary(), full.Attention()
+	data.Sparks = map[string]string{}
+	for _, c := range cs {
+		data.Sparks[c.ID] = sparkPath(s.metrics.spark(c.ID))
+		data.MaxMem = max(data.MaxMem, c.Memory)
+	}
+	data.Counts = map[string]int{
+		"attention": len(data.Problems),
+		"stopped":   data.Overview.Total - data.Overview.Running,
+		"unmanaged": data.Overview.Unmanaged,
+		"selected":  data.Overview.Selected,
+	}
 	data.Dashboard = full
 	if f := r.URL.Query().Get("filter"); view.Filters[f] != "" {
 		data.Filter, data.FilterLabel = f, view.Filters[f]
@@ -460,6 +493,9 @@ type statusContainer struct {
 	Memory   string `json:"memory"`
 	// CrashLooping is set while the container keeps restarting.
 	CrashLooping bool `json:"crashLooping"`
+	// Spark is the CPU sparkline's SVG path; MemoryBytes sizes the memory bar.
+	Spark       string `json:"spark"`
+	MemoryBytes uint64 `json:"memoryBytes"`
 }
 
 // status is the JSON the dashboard polls to refresh container state and usage.
@@ -484,6 +520,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 			ID: c.ID, Name: c.Name, State: c.State, Status: c.Status,
 			Health: healthText(c.Health), Restarts: c.RestartCount,
 			CPU: cpuText(c), Memory: memText(c), CrashLooping: c.CrashLooping,
+			Spark: sparkPath(s.metrics.spark(c.ID)), MemoryBytes: c.Memory,
 		})
 	}
 	json.NewEncoder(w).Encode(out)
@@ -811,4 +848,26 @@ func exitCode(status string) string {
 	}
 	code, _, _ := strings.Cut(rest, ")")
 	return code
+}
+
+// sicon picks a container row's status icon: ok, err (needs attention), pend
+// (starting or restarting) or off (stopped cleanly or not started).
+func sicon(c view.Container) string {
+	switch {
+	case c.NeedsAttention():
+		return "err"
+	case c.State == "running" && c.Health == "starting", c.State == "restarting":
+		return "pend"
+	case c.State == "running":
+		return "ok"
+	}
+	return "off"
+}
+
+// navCount reads a side-navigation count from the dashboard data (-1 = don't show).
+func navCount(v any, name string) int {
+	if d, ok := v.(indexData); ok && d.Counts != nil {
+		return d.Counts[name]
+	}
+	return -1
 }

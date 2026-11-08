@@ -69,10 +69,11 @@ async function refreshStatus() {
     const res = await fetch("/api/status", { cache: "no-store" });
     if (!res.ok) return;
     const { containers } = await res.json();
+    const peakMem = Math.max(0, ...containers.map((c) => c.memoryBytes || 0));
     for (const c of containers) {
       const row = document.querySelector(`tr.container[data-id="${CSS.escape(c.id)}"]`);
       if (!row) continue;
-      row.className = `container state-${c.state}${c.health === "unhealthy" ? " is-unhealthy" : ""}${c.crashLooping ? " is-crashloop" : ""}`;
+      row.className = `container state-${c.state} si-${statusIcon(c)}${c.health === "unhealthy" ? " is-unhealthy" : ""}${c.crashLooping ? " is-crashloop" : ""}`;
       const loop = row.querySelector(".crashloop-badge");
       if (loop) loop.hidden = !c.crashLooping;
       row.dataset.health = c.health;
@@ -86,9 +87,14 @@ async function refreshStatus() {
       row.querySelector(".restarts-badge").classList.toggle("is-zero", !c.restarts);
       row.querySelector(".cpu").textContent = c.cpu;
       const pct = parseFloat(c.cpu);
+      const load = pct >= 85 ? " bar-bad" : pct >= 50 ? " bar-warn" : "";
       const fill = row.querySelector(".bar-fill");
       fill.style.width = `${Number.isFinite(pct) ? Math.min(pct, 100) : 0}%`;
-      fill.className = `bar-fill${pct >= 85 ? " bar-bad" : pct >= 50 ? " bar-warn" : ""}`;
+      fill.className = `bar-fill${load}`;
+      const spark = row.querySelector(".spark-fill");
+      if (spark) { spark.setAttribute("d", c.spark || ""); spark.setAttribute("class", `spark-fill${load}`); }
+      const membar = row.querySelector(".membar-fill");
+      if (membar) membar.style.width = `${peakMem ? (c.memoryBytes / peakMem) * 100 : 0}%`;
       row.querySelector(".mem").textContent = c.memory;
       row.querySelector(".status").textContent = c.status;
     }
@@ -96,6 +102,13 @@ async function refreshStatus() {
   } catch (_) {
     // Network hiccup: try again next tick.
   }
+}
+
+// The row's status icon: matches sicon() on the server.
+function statusIcon(c) {
+  if (needsAttention(c)) return "err";
+  if ((c.state === "running" && c.health === "starting") || c.state === "restarting") return "pend";
+  return c.state === "running" ? "ok" : "off";
 }
 
 // Keep the overview tiles and each Stack's pill in step with the refreshed rows.
@@ -243,4 +256,112 @@ if (logView) {
   });
 
   connect();
+}
+
+// Side navigation drawer on narrow screens.
+const navToggle = document.querySelector(".nav-toggle");
+navToggle?.addEventListener("click", () => {
+  const open = document.body.classList.toggle("nav-open");
+  navToggle.setAttribute("aria-expanded", String(open));
+});
+
+// Search: narrow the container rows by name or image; hide cards left empty.
+const search = document.querySelector(".global-search");
+if (search && !search.disabled) {
+  const apply = () => {
+    const q = search.value.trim().toLowerCase();
+    let shown = 0;
+    for (const row of document.querySelectorAll("tr.container")) {
+      const hit = !q || row.dataset.name.toLowerCase().includes(q) || row.dataset.image.toLowerCase().includes(q);
+      row.hidden = !hit;
+      if (hit) shown++;
+    }
+    for (const card of document.querySelectorAll("section.stack.card")) {
+      const rows = card.querySelectorAll("tr.container");
+      card.hidden = q !== "" && (rows.length === 0 || [...rows].every((r) => r.hidden));
+    }
+    for (const sel of [".charts", ".status-card", "#attention", ".inactive", "#sync"]) {
+      const el = document.querySelector(sel);
+      if (el) el.hidden = q !== "";
+    }
+    const none = document.querySelector(".no-match");
+    if (none) none.hidden = !q || shown > 0;
+  };
+  search.addEventListener("input", apply);
+  search.addEventListener("keydown", (e) => { if (e.key === "Escape") { search.value = ""; apply(); } });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "/" && document.activeElement === document.body) { e.preventDefault(); search.focus(); }
+  });
+}
+
+// Host CPU and memory charts, drawn as SVG from /api/metrics.
+const charts = [...document.querySelectorAll(".chart[data-series]")];
+if (charts.length) {
+  const SVG = "http://www.w3.org/2000/svg";
+  const el = (name, attrs) => {
+    const n = document.createElementNS(SVG, name);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    return n;
+  };
+  const fmtBytes = (b) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} Gi` : `${Math.round(b / (1 << 20))} Mi`;
+  const fmt = (v, unit) => unit === "bytes" ? fmtBytes(v) : v.toFixed(v < 1 ? 3 : 2);
+  const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  // A "nice" top for the y axis: 1, 2 or 5 × 10^n, above the peak.
+  const niceTop = (v, unit) => {
+    if (v <= 0) return unit === "bytes" ? 1 << 28 : 0.1;
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v * 1.1) return m * p;
+    return 10 * p;
+  };
+
+  function draw(box, points) {
+    if (points.length < 2) return;
+    const unit = box.dataset.unit;
+    const W = box.clientWidth || 600, H = box.clientHeight || 220;
+    const L = 56, R = 12, T = 12, B = 30;
+    const iw = W - L - R, ih = H - T - B;
+    const t0 = new Date(points[0].t).getTime(), t1 = new Date(points[points.length - 1].t).getTime();
+    const top = niceTop(Math.max(...points.map((p) => p.v)), unit);
+    const x = (t) => L + ((new Date(t).getTime() - t0) / Math.max(1, t1 - t0)) * iw;
+    const y = (v) => T + ih - (v / top) * ih;
+
+    const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none" });
+    const axis = el("g", { class: "axis" });
+    for (let i = 0; i <= 4; i++) {
+      const v = (top / 4) * i, yy = y(v);
+      svg.append(el("line", { class: "gridline", x1: L, x2: W - R, y1: yy, y2: yy }));
+      const label = el("text", { x: L - 8, y: yy + 4, "text-anchor": "end" });
+      label.textContent = fmt(v, unit);
+      axis.append(label);
+    }
+    for (let i = 0; i <= 4; i++) {
+      const t = t0 + ((t1 - t0) / 4) * i;
+      const label = el("text", { x: L + (iw / 4) * i, y: H - 8, "text-anchor": i === 0 ? "start" : i === 4 ? "end" : "middle" });
+      label.textContent = clock(t);
+      axis.append(label);
+    }
+    const line = points.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ");
+    svg.append(el("path", { class: "area", d: `${line} L${x(points[points.length - 1].t).toFixed(1)} ${T + ih} L${L} ${T + ih} Z` }));
+    svg.append(el("path", { class: "line", d: line }));
+    svg.append(el("line", { class: "baseline", x1: L, x2: W - R, y1: T + ih, y2: T + ih }));
+    svg.append(axis);
+    box.replaceChildren(svg);
+
+    const now = document.querySelector(`[data-now="${box.dataset.series}"]`);
+    if (now) now.textContent = `${fmt(points[points.length - 1].v, unit)}${unit === "bytes" ? "B" : " cores"} now`;
+  }
+
+  async function refreshCharts() {
+    if (document.hidden) return;
+    try {
+      const res = await fetch("/api/metrics", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      for (const box of charts) draw(box, data[box.dataset.series] || []);
+    } catch (_) { /* try again next time */ }
+  }
+  refreshCharts();
+  setInterval(refreshCharts, 15000);
+  let resizeTimer;
+  window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(refreshCharts, 200); });
 }

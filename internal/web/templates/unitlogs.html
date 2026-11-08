@@ -7,15 +7,7 @@
 {{template "head"}}
 </head>
 <body class="logs-page">
-<header class="topbar">
-  <div class="topbar-inner">
-    {{template "brand"}}
-    <div class="host"><span class="host-label">Host</span><span class="hostname">{{.Hostname}}</span></div>
-    <div class="chips"><span class="chip">unit log</span></div>
-    {{template "back"}}
-  </div>
-</header>
-<main class="page">
+{{template "shell-start" (dict "Hostname" .Hostname "Page" "logs" "Parent" "Unit logs" "Crumb" .Unit)}}
   <div class="card log-card">
     <div class="card-head">
       <h1 class="unit-name mono">{{.Unit}}</h1>
@@ -38,7 +30,6 @@
     <pre class="terminal log" data-stream="/units/{{.Unit}}/logs/stream" data-name="{{.Unit}}" aria-live="off"></pre>
   </div>
   <noscript><div class="callout callout-bad error">The log view needs JavaScript.</div></noscript>
-</main>
-<script src="/static/app.js"></script>
+{{template "shell-end"}}
 </body>
 </html>

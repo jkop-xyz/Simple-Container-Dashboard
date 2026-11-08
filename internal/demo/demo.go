@@ -122,6 +122,7 @@ func New(version string) (*Demo, error) {
 		LatestRelease: func(context.Context) (string, error) { return "", errors.New("demo mode is offline") },
 		Demo:          true,
 		WatchFor:      15 * time.Second, // a quicker post-Apply health check to watch
+		SampleEvery:   5 * time.Second,  // charts fill up quickly
 	})
 	if err != nil {
 		d.Close()
