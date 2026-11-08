@@ -137,39 +137,84 @@ document.addEventListener("visibilitychange", () => scheduleRefresh(document.hid
 // The first CPU figure needs two samples, so refresh soon after load.
 if (document.querySelector("tr.container")) scheduleRefresh(1500);
 
-// Container logs: tail, then follow live. Pause stops appending without losing lines.
+// Log views: tail, then follow live. Filter, line count, timestamps, pause and download.
 const logView = document.querySelector("pre.log[data-stream]");
 if (logView) {
   const MAX_LINES = 10000;
-  const pauseBtn = document.querySelector(".log-pause");
-  const status = document.querySelector(".log-status");
-  let paused = false;
-  let held = [];
-  let count = 0;
+  const $ = (sel) => document.querySelector(sel);
+  const pauseBtn = $(".log-pause"), status = $(".log-status"), live = $(".live");
+  const filterBox = $(".log-filter"), countEl = $(".log-count");
+  const linesSel = $(".log-lines"), stampsBox = $(".log-timestamps"), tailEl = $(".log-tail");
+  let lines = [], held = [], paused = false, es = null, filter = "";
 
-  const append = (lines) => {
-    const atBottom = logView.scrollHeight - logView.scrollTop - logView.clientHeight < 40;
-    logView.append(document.createTextNode(lines.join("\n") + "\n"));
-    count += lines.length;
-    // Trim in batches, so a busy log doesn't rewrite the whole view on every line.
-    if (count > MAX_LINES + 2000) {
-      const text = logView.textContent.split("\n");
-      logView.textContent = text.slice(text.length - MAX_LINES - 1).join("\n");
-      count = MAX_LINES;
+  const atBottom = () => logView.scrollHeight - logView.scrollTop - logView.clientHeight < 40;
+  const matches = (l) => !filter || l.toLowerCase().includes(filter);
+
+  // One line as text, with filter matches marked.
+  function lineNode(l) {
+    const el = document.createElement("span");
+    if (!filter) { el.textContent = l + "\n"; return el; }
+    const low = l.toLowerCase();
+    let i = 0;
+    for (let j = low.indexOf(filter); j >= 0; j = low.indexOf(filter, i)) {
+      el.append(l.slice(i, j));
+      const m = document.createElement("mark");
+      m.textContent = l.slice(j, j + filter.length);
+      el.append(m);
+      i = j + filter.length;
     }
-    if (atBottom) logView.scrollTop = logView.scrollHeight;
-  };
+    el.append(l.slice(i) + "\n");
+    return el;
+  }
 
-  const live = document.querySelector(".live");
-  const es = new EventSource(logView.dataset.stream);
-  es.onopen = () => { if (live) live.hidden = paused; };
-  es.onmessage = (e) => (paused ? held.push(e.data) : append([e.data]));
-  es.addEventListener("error", (e) => { if (e.data) status.textContent = "error: " + e.data; });
-  es.addEventListener("done", () => {
-    es.close();
-    if (live) live.hidden = true;
-    status.textContent = "end of log";
-  });
+  function updateCount() {
+    if (!countEl) return;
+    countEl.textContent = filter ? `${lines.filter(matches).length} of ${lines.length} lines` : `${lines.length} lines`;
+  }
+
+  function render() {
+    const stick = atBottom();
+    const frag = document.createDocumentFragment();
+    for (const l of lines) if (matches(l)) frag.append(lineNode(l));
+    logView.replaceChildren(frag);
+    updateCount();
+    if (stick || !filter) logView.scrollTop = logView.scrollHeight;
+  }
+
+  function append(batch) {
+    const stick = atBottom();
+    lines.push(...batch);
+    if (lines.length > MAX_LINES + 2000) { // trim in batches, not on every line
+      lines = lines.slice(lines.length - MAX_LINES);
+      render();
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    for (const l of batch) if (matches(l)) frag.append(lineNode(l));
+    logView.append(frag);
+    updateCount();
+    if (stick) logView.scrollTop = logView.scrollHeight;
+  }
+
+  function connect() {
+    if (es) es.close();
+    lines = []; held = [];
+    logView.replaceChildren();
+    status.textContent = "";
+    const params = new URLSearchParams();
+    if (linesSel) params.set("lines", linesSel.value);
+    if (stampsBox && stampsBox.checked) params.set("timestamps", "1");
+    if (tailEl && linesSel) tailEl.textContent = linesSel.value;
+    es = new EventSource(`${logView.dataset.stream}?${params}`);
+    es.onopen = () => { if (live) live.hidden = paused; };
+    es.onmessage = (e) => (paused ? held.push(e.data) : append([e.data]));
+    es.addEventListener("error", (e) => { if (e.data) status.textContent = "error: " + e.data; });
+    es.addEventListener("done", () => {
+      es.close();
+      if (live) live.hidden = true;
+      status.textContent = "end of log";
+    });
+  }
 
   pauseBtn.addEventListener("click", () => {
     paused = !paused;
@@ -177,6 +222,25 @@ if (logView) {
     pauseBtn.setAttribute("aria-pressed", String(paused));
     if (!paused && held.length) { append(held); held = []; }
     status.textContent = paused ? "paused" : "";
-    if (live && es.readyState !== EventSource.CLOSED) live.hidden = paused;
+    if (live && es && es.readyState !== EventSource.CLOSED) live.hidden = paused;
   });
+
+  let filterTimer;
+  filterBox?.addEventListener("input", () => {
+    clearTimeout(filterTimer);
+    filterTimer = setTimeout(() => { filter = filterBox.value.trim().toLowerCase(); render(); }, 120);
+  });
+  linesSel?.addEventListener("change", connect);
+  stampsBox?.addEventListener("change", connect);
+
+  $(".log-download")?.addEventListener("click", () => {
+    const text = lines.filter(matches).join("\n") + "\n";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    a.download = `${logView.dataset.name || "log"}-${new Date().toISOString().replace(/[:.]/g, "-")}.log`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+
+  connect();
 }

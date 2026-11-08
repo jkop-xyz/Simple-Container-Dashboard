@@ -278,7 +278,11 @@ func (s *Server) stats(w http.ResponseWriter, c Container) {
 func (s *Server) logs(w http.ResponseWriter, r *http.Request, c Container) {
 	w.Header().Set("Content-Type", "application/vnd.docker.raw-stream")
 	flusher, _ := w.(http.Flusher)
+	stamp := r.URL.Query().Get("timestamps") == "true"
 	write := func(line string) {
+		if stamp {
+			line = "2026-11-09T12:00:00.000000000Z " + line
+		}
 		data := []byte(line + "\n")
 		if c.Tty {
 			w.Write(data)
