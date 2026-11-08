@@ -15,8 +15,20 @@ import (
 )
 
 // newPodmanEnv is a dashboard on a Podman host whose Deployment Repo holds Quadlet Stacks.
+// Quadlet Stacks deploy into a temp dir, never the developer's real Quadlet directory.
 func newPodmanEnv(t *testing.T, initial map[string]string) *syncEnv {
 	t.Helper()
+	return newPodmanEnvIn(t, initial, t.TempDir())
+}
+
+// newPodmanEnvIn is newPodmanEnv with a given Quadlet directory and, optionally, a
+// generator path (default fakeGenerator; "" means auto-detect).
+func newPodmanEnvIn(t *testing.T, initial map[string]string, quadletDir string, generator ...string) *syncEnv {
+	t.Helper()
+	gen := fakeGenerator
+	if len(generator) > 0 {
+		gen = generator[0]
+	}
 	remote := gittest.NewRemote(t)
 	remote.Commit("initial", merge(initial, map[string]string{".gitignore": "secrets.env\n"}))
 	rec := gitOnly()
@@ -26,9 +38,15 @@ func newPodmanEnv(t *testing.T, initial map[string]string) *syncEnv {
 		o.Runner = rec
 		o.DataDir = dataDir
 		o.Config.Runtime = config.Podman
+		o.QuadletDir = quadletDir
+		o.QuadletGenerator = gen
 	})
+	rec.On("podman version", runnertest.Response{Output: "5.2.1\n"})
 	return &syncEnv{harness: h, remote: remote, rec: rec, clone: clone, state: state.Open(filepath.Join(dataDir, "state.json"))}
 }
+
+// fakeGenerator is the quadlet generator path tests use; the recording fake answers it.
+const fakeGenerator = "/fake/libexec/podman/quadlet"
 
 func quadletLabel(unit string) map[string]string {
 	return map[string]string{"PODMAN_SYSTEMD_UNIT": unit}

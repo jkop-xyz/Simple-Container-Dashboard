@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +35,11 @@ type Options struct {
 	Hostname string
 	// DataDir holds scd's state file. Defaults to config.DataDir().
 	DataDir string
+	// QuadletDir is where Quadlet Stacks are deployed. Defaults to the user's
+	// ~/.config/containers/systemd.
+	QuadletDir string
+	// QuadletGenerator is Podman's quadlet generator. Defaults to the first one found.
+	QuadletGenerator string
 }
 
 // App is a wired-up dashboard.
@@ -93,8 +99,37 @@ func New(opts Options) (*App, error) {
 		deps.RepoName = repo.DisplayName(rc.URL)
 		deps.RepoError = a.cloner.check
 		deployers := engine.Deployers{}
-		if rt == config.Docker {
+		switch rt {
+		case config.Docker:
 			deployers[stacks.Compose] = deploy.Compose{Runner: opts.Runner, RepoPath: rc.Path}
+		case config.Podman:
+			if opts.QuadletDir == "" {
+				dir, err := os.UserConfigDir()
+				if err != nil {
+					return nil, err
+				}
+				opts.QuadletDir = filepath.Join(dir, "containers", "systemd")
+			}
+			if opts.QuadletGenerator == "" {
+				opts.QuadletGenerator = deploy.FindGenerator()
+			}
+			r := a.repo
+			deployers[stacks.Quadlet] = &deploy.Quadlet{
+				Runner: opts.Runner, RepoPath: rc.Path, QuadletDir: opts.QuadletDir, Generator: opts.QuadletGenerator,
+				TrackedFiles: func(ctx context.Context, stack string) ([]string, error) {
+					files, err := r.Files(ctx, "HEAD")
+					if err != nil {
+						return nil, err
+					}
+					var out []string
+					for _, f := range files {
+						if rest, ok := strings.CutPrefix(f, stack+"/"); ok {
+							out = append(out, rest)
+						}
+					}
+					return out, nil
+				},
+			}
 		}
 		deps.Engine = &engine.Engine{Repo: a.repo, State: deps.State, Deployers: deployers, Runtime: rt}
 	}
