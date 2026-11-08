@@ -119,11 +119,16 @@ func TestChangingSelectionDeploysNothing(t *testing.T) {
 	}
 }
 
+// mustGet returns the whole dashboard: the Overview, Containers and Deployment pages.
 func mustGet(h *harness) string {
 	h.t.Helper()
-	code, body := h.get("/")
-	if code != http.StatusOK {
-		h.t.Fatalf("GET /: status %d\n%s", code, body)
+	var all strings.Builder
+	for _, path := range []string{"/", "/containers", "/deployment"} {
+		code, body := h.get(path)
+		if code != http.StatusOK {
+			h.t.Fatalf("GET %s: status %d\n%s", path, code, body)
+		}
+		all.WriteString(body)
 	}
-	return body
+	return all.String()
 }

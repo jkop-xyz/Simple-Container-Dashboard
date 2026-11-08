@@ -73,10 +73,10 @@ func TestDemoNeedsNothingAndExercisesTheWholeUI(t *testing.T) {
 	srv := httptest.NewServer(d.Handler())
 	defer srv.Close()
 
-	page := get(t, srv, "/")
+	page := get(t, srv, "/") + get(t, srv, "/containers") + get(t, srv, "/deployment")
 	contains(t, page, "Demo mode", "Simulate a push", "demo-host", "demo/homelab",
 		`data-stack="jellyfin"`, "jellyfin-server-1", "homeassistant-core-1", "unhealthy",
-		"Other", "scratch-shell", "adhoc-redis", "6379/tcp (local)", "8096 ↗", "last Apply")
+		"Other", "scratch-shell", "adhoc-redis", "6379/tcp (local)", ">8096<svg", "last Apply")
 	if strings.Contains(page, "missing tools") {
 		t.Error("demo shows missing tools")
 	}
@@ -92,7 +92,7 @@ func TestDemoNeedsNothingAndExercisesTheWholeUI(t *testing.T) {
 	post(t, srv, "/apply")
 	stream := follow(t, srv)
 	contains(t, stream, "==> redeploy jellyfin", "Container jellyfin-server-1  Started", "==> teardown nextcloud", "Apply finished")
-	page = get(t, srv, "/")
+	page = get(t, srv, "/") + get(t, srv, "/containers")
 	contains(t, page, "Apply finished successfully", "jellyfin/jellyfin:10.10.3")
 	if strings.Contains(page, `class="name">nextcloud-app-1<`) {
 		t.Error("nextcloud's containers should be gone after the teardown")
@@ -111,9 +111,9 @@ func TestDemoLogsStream(t *testing.T) {
 	srv := httptest.NewServer(d.Handler())
 	defer srv.Close()
 
-	page := get(t, srv, "/")
+	page := get(t, srv, "/containers")
 	_, rest, _ := strings.Cut(page, `href="/containers/`)
 	id, _, _ := strings.Cut(rest, "/logs")
 	logs := get(t, srv, "/containers/"+id+"/logs")
-	contains(t, logs, "container-name", "Pause", "Back to the dashboard")
+	contains(t, logs, "container-name", "Pause", `class="crumb crumb-home" href="/">Overview</a>`)
 }

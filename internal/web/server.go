@@ -11,8 +11,10 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -53,6 +55,82 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	},
 	"ports": view.Ports,
+	"sicon": sicon,
+	// groupState sums up a Stack's containers: the problems if there are any, otherwise
+	// how many run. Never both, so it can't read as broken and fine at once.
+	"groupState": func(g view.Group) string {
+		var parts []string
+		if n := g.CrashLooping(); n > 0 {
+			parts = append(parts, fmt.Sprintf("%d crash-looping", n))
+		}
+		if n := g.Unhealthy(); n > 0 {
+			parts = append(parts, fmt.Sprintf("%d unhealthy", n))
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, " · ")
+		}
+		if len(g.Containers) == 0 {
+			return "no containers yet"
+		}
+		if g.Running() < len(g.Containers) {
+			return fmt.Sprintf("%d/%d running", g.Running(), len(g.Containers))
+		}
+		if g.Restarted() {
+			return fmt.Sprintf("%d/%d running · restarted", g.Running(), len(g.Containers))
+		}
+		return fmt.Sprintf("%d/%d running", g.Running(), len(g.Containers))
+	},
+	// problems counts containers that need attention.
+	"problems": func(cs []view.Container) int {
+		n := 0
+		for _, c := range cs {
+			if c.NeedsAttention() {
+				n++
+			}
+		}
+		return n
+	},
+	// stackIcon is a Stack's status icon in the Overview summary.
+	"stackIcon": func(g view.Group) string {
+		switch {
+		case g.Stack.Invalid() || g.Unhealthy() > 0 || g.CrashLooping() > 0:
+			return "err"
+		case len(g.Containers) == 0 || g.Running() < len(g.Containers) || g.Selected != g.Deployed:
+			return "pend"
+		}
+		return "ok"
+	},
+	"filterTitle": func(f string) string { return view.FilterTitles[f] },
+	// shown counts the containers a (filtered) dashboard shows.
+	"shown": func(d view.Dashboard) int {
+		n := len(d.Other)
+		for _, g := range d.Groups {
+			n += len(g.Containers)
+		}
+		return n
+	},
+	// memBar sizes a container's memory bar relative to the busiest container.
+	// memBar sizes a memory bar on a square-root scale of the share of host memory, so
+	// small containers stay visible (the exact share is in the tooltip).
+	"memBar": func(mem, total uint64) float64 {
+		if total == 0 || mem == 0 {
+			return 0
+		}
+		return max(3, min(math.Sqrt(float64(mem)/float64(total))*100, 100))
+	},
+	"pct": func(part, total uint64) string {
+		if total == 0 {
+			return ""
+		}
+		return fmt.Sprintf("%.1f%% of host memory", float64(part)/float64(total)*100)
+	},
+	"navCount": navCount,
+	"title": func(s string) string {
+		if s == "" {
+			return s
+		}
+		return strings.ToUpper(s[:1]) + s[1:]
+	},
 	"ifelse": func(cond any, a, b any) any {
 		if truthy(cond) {
 			return a
@@ -113,6 +191,7 @@ type Runtime interface {
 	Inspect(ctx context.Context, id string) (dockerapi.Details, error)
 	Stats(ctx context.Context, id string) (dockerapi.Sample, error)
 	Logs(ctx context.Context, id string, opts dockerapi.LogOptions, fn func(line string) error) error
+	Info(ctx context.Context) (dockerapi.Info, error)
 }
 
 // Units reads systemd units; only set on Podman hosts.
@@ -178,6 +257,22 @@ type Server struct {
 	mux     *http.ServeMux
 	usage   usage.Collector
 	crashes crashloop.Tracker
+	metrics metrics
+
+	infoMu sync.Mutex
+	info   dockerapi.Info
+}
+
+// hostInfo is the runtime's host info, read once it succeeds.
+func (s *Server) hostInfo(ctx context.Context) dockerapi.Info {
+	s.infoMu.Lock()
+	defer s.infoMu.Unlock()
+	if s.info.MemTotal == 0 {
+		if info, err := s.deps.Runtime.Info(ctx); err == nil {
+			s.info = info
+		}
+	}
+	return s.info
 }
 
 // New returns the dashboard handler.
@@ -186,6 +281,8 @@ func New(deps Deps) *Server {
 	static, _ := fs.Sub(staticFS, "static")
 	s.mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
 	s.mux.HandleFunc("GET /{$}", s.index)
+	s.mux.HandleFunc("GET /containers", s.index)
+	s.mux.HandleFunc("GET /deployment", s.index)
 	s.mux.HandleFunc("POST /stacks/{name}/selection", s.setSelection)
 	s.mux.HandleFunc("POST /sync", s.sync)
 	s.mux.HandleFunc("POST /apply", s.apply)
@@ -193,6 +290,7 @@ func New(deps Deps) *Server {
 	s.mux.HandleFunc("GET /history", s.history)
 	s.mux.HandleFunc("GET /history/{id}", s.historyOutput)
 	s.mux.HandleFunc("GET /api/status", s.status)
+	s.mux.HandleFunc("GET /api/metrics", s.metricsJSON)
 	s.mux.HandleFunc("GET /containers/{id}/logs", s.logsPage)
 	s.mux.HandleFunc("GET /containers/{id}/logs/stream", s.logsStream)
 	s.mux.HandleFunc("GET /units/{unit}/logs", s.unitLogsPage)
@@ -226,14 +324,45 @@ type indexData struct {
 	Problems []view.Problem
 	// Filter is the active filter's name and FilterLabel what it shows ("" = everything).
 	Filter, FilterLabel string
+	// Sparks are the containers' CPU sparkline paths; MaxMem scales the memory bars.
+	Sparks map[string]string
+	MaxMem uint64
+	// Counts are per-filter counts for the side navigation.
+	Counts map[string]int
+	// Q is the search text ("" = no search).
+	Q string
+	// View is the page: "overview", "containers" or "deployment".
+	View string
+	// MemTotal is the host's memory, which the memory bars are a share of.
+	MemTotal uint64
+	// Pending are Stacks whose selection differs from what's deployed.
+	Pending []view.Group
+	// ApplyHint explains a disabled Apply button.
+	ApplyHint string
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
+	// Filters and searches live on the Containers page; keep old links working.
+	if r.URL.Path == "/" && (r.URL.Query().Get("filter") != "" || r.URL.Query().Get("q") != "") {
+		http.Redirect(w, r, "/containers?"+r.URL.RawQuery, http.StatusSeeOther)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
+	page := strings.TrimPrefix(r.URL.Path, "/")
+	if page == "" {
+		page = "overview"
+	}
+	data, status := s.dashboard(ctx, r, page)
+	render(w, status, "index.html", data)
+}
+
+// dashboard gathers everything a dashboard page shows. Subpages use it too, so the app
+// bar, toolbar and navigation counts look the same on every page.
+func (s *Server) dashboard(ctx context.Context, r *http.Request, page string) (indexData, int) {
 	data := indexData{Hostname: s.deps.Hostname, RepoName: s.deps.RepoName, BrowserHost: browserHost(r),
-		Missing: s.missing(), NewRelease: s.newRelease(), Demo: s.deps.Demo}
+		Missing: s.missing(), NewRelease: s.newRelease(), Demo: s.deps.Demo, View: page}
 	status := http.StatusOK
 
 	cs, err := s.containers(ctx)
@@ -262,10 +391,34 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		_, full.Groups[i].Deployed = st.Deployed[full.Groups[i].Stack.Name]
 	}
 	data.Overview, data.Problems = full.Summary(), full.Attention()
+	data.Sparks = map[string]string{}
+	for _, c := range cs {
+		data.Sparks[c.ID] = sparkPath(s.metrics.spark(c.ID))
+		data.MaxMem = max(data.MaxMem, c.Memory)
+	}
+	data.MemTotal = s.hostInfo(ctx).MemTotal
+	if data.MemTotal > 0 {
+		data.MaxMem = data.MemTotal // bars show each container's share of host memory
+	}
+	for _, g := range full.Groups {
+		if g.Selected != g.Deployed && !g.Stack.Invalid() {
+			data.Pending = append(data.Pending, g)
+		}
+	}
+	data.Counts = map[string]int{
+		"attention": len(data.Problems),
+		"stopped":   data.Overview.Total - data.Overview.Running,
+		"unmanaged": data.Overview.Unmanaged,
+		"selected":  data.Overview.Selected,
+	}
 	data.Dashboard = full
-	if f := r.URL.Query().Get("filter"); view.Filters[f] != "" {
+	if f := r.URL.Query().Get("filter"); data.View == "containers" && view.Filters[f] != "" {
 		data.Filter, data.FilterLabel = f, view.Filters[f]
 		data.Dashboard = full.Filter(f)
+	}
+	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" && data.View == "containers" {
+		data.Q = q
+		data.Dashboard = data.Dashboard.Search(q)
 	}
 	if s.deps.Units != nil {
 		s.addUnits(ctx, &data.Dashboard)
@@ -278,8 +431,22 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		status := s.deps.Engine.Status()
 		data.Sync = &status
 	}
+	if data.Sync != nil && !data.Sync.CanApply {
+		switch {
+		case data.Sync.Running:
+			data.ApplyHint = "A Sync is running"
+		case data.Sync.Plan == nil:
+			data.ApplyHint = "Nothing to apply yet: press Sync to fetch and review a plan"
+		case data.Sync.Stale:
+			data.ApplyHint = "The selection changed: press Sync again"
+		case data.Sync.Plan.Blocked != "":
+			data.ApplyHint = "This plan can't be applied"
+		default:
+			data.ApplyHint = "The plan changes nothing on this host"
+		}
+	}
 
-	render(w, status, "index.html", data)
+	return data, status
 }
 
 // discover returns the Stacks in the clone's checked-out commit plus any new ones in the
@@ -345,7 +512,7 @@ func (s *Server) sync(w http.ResponseWriter, r *http.Request) {
 	}
 	// The outcome is kept by the engine and rendered on the dashboard.
 	_, _ = s.deps.Engine.Sync(r.Context())
-	http.Redirect(w, r, "/#sync", http.StatusSeeOther)
+	http.Redirect(w, r, backTo(r, "#sync"), http.StatusSeeOther)
 }
 
 // apply starts (or joins) an Apply of the current Sync Plan. Rejections are kept by the
@@ -358,7 +525,7 @@ func (s *Server) apply(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.deps.Engine.Apply(); err != nil {
 		slog.Warn("Apply rejected", "err", err)
 	}
-	http.Redirect(w, r, "/#apply", http.StatusSeeOther)
+	http.Redirect(w, r, backTo(r, "#apply"), http.StatusSeeOther)
 }
 
 // applyStream streams the running (or latest) Apply's output as Server-Sent Events,
@@ -400,10 +567,12 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "reading state: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	chrome, _ := s.dashboard(r.Context(), r, "history")
 	data := struct {
 		Hostname string
 		History  []state.ApplyRecord
-	}{s.deps.Hostname, st.History}
+		Index    indexData
+	}{s.deps.Hostname, st.History, chrome}
 	render(w, http.StatusOK, "history.html", data)
 }
 
@@ -460,6 +629,9 @@ type statusContainer struct {
 	Memory   string `json:"memory"`
 	// CrashLooping is set while the container keeps restarting.
 	CrashLooping bool `json:"crashLooping"`
+	// Spark is the CPU sparkline's SVG path; MemoryBytes sizes the memory bar.
+	Spark       string `json:"spark"`
+	MemoryBytes uint64 `json:"memoryBytes"`
 }
 
 // status is the JSON the dashboard polls to refresh container state and usage.
@@ -478,12 +650,14 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		Containers []statusContainer `json:"containers"`
 		Missing    []string          `json:"missing"`
 		NewRelease string            `json:"newRelease,omitempty"`
-	}{Containers: []statusContainer{}, Missing: s.missing(), NewRelease: s.newRelease()}
+		MemTotal   uint64            `json:"memTotal"`
+	}{Containers: []statusContainer{}, Missing: s.missing(), NewRelease: s.newRelease(), MemTotal: s.hostInfo(ctx).MemTotal}
 	for _, c := range cs {
 		out.Containers = append(out.Containers, statusContainer{
 			ID: c.ID, Name: c.Name, State: c.State, Status: c.Status,
 			Health: healthText(c.Health), Restarts: c.RestartCount,
 			CPU: cpuText(c), Memory: memText(c), CrashLooping: c.CrashLooping,
+			Spark: sparkPath(s.metrics.spark(c.ID)), MemoryBytes: c.Memory,
 		})
 	}
 	json.NewEncoder(w).Encode(out)
@@ -548,6 +722,15 @@ func (s *Server) logsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	details, _ := s.deps.Runtime.Inspect(r.Context(), c.ID)
+	chrome, _ := s.dashboard(r.Context(), r, "logs")
+	stack := ""
+	for _, g := range chrome.Groups {
+		for _, gc := range g.Containers {
+			if gc.ID == c.ID {
+				stack = g.Stack.Name
+			}
+		}
+	}
 	data := struct {
 		Hostname string
 		C        dockerapi.Container
@@ -555,7 +738,9 @@ func (s *Server) logsPage(w http.ResponseWriter, r *http.Request) {
 		ExitCode string
 		Tail     int
 		Tails    []int
-	}{s.deps.Hostname, c, details, exitCode(c.Status), LogTail, LogTails}
+		Index    indexData
+		Stack    string
+	}{s.deps.Hostname, c, details, exitCode(c.Status), LogTail, LogTails, chrome, stack}
 	render(w, http.StatusOK, "logs.html", data)
 }
 
@@ -640,11 +825,13 @@ func (s *Server) unitLogsPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no Quadlet unit named "+unit, http.StatusNotFound)
 		return
 	}
+	chrome, _ := s.dashboard(r.Context(), r, "logs")
 	data := struct {
 		Hostname, Unit string
 		Tail           int
 		Tails          []int
-	}{s.deps.Hostname, unit, LogTail, LogTails}
+		Index          indexData
+	}{s.deps.Hostname, unit, LogTail, LogTails, chrome}
 	render(w, http.StatusOK, "unitlogs.html", data)
 }
 
@@ -795,12 +982,14 @@ func (s *Server) historyOutput(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "reading Apply output: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	chrome, _ := s.dashboard(r.Context(), r, "history")
 	render(w, http.StatusOK, "applyoutput.html", struct {
 		Hostname string
 		Rec      *state.ApplyRecord
 		Lines    []string
 		Kept     bool
-	}{s.deps.Hostname, rec, lines, ok})
+		Index    indexData
+	}{s.deps.Hostname, rec, lines, ok, chrome})
 }
 
 // exitCode extracts N from a status like "Exited (N) 3 hours ago".
@@ -811,4 +1000,35 @@ func exitCode(status string) string {
 	}
 	code, _, _ := strings.Cut(rest, ")")
 	return code
+}
+
+// sicon picks a container row's status icon: ok, err (needs attention), pend
+// (starting or restarting) or off (stopped cleanly or not started).
+func sicon(c view.Container) string {
+	switch {
+	case c.NeedsAttention():
+		return "err"
+	case c.State == "running" && c.Health == "starting", c.State == "restarting":
+		return "pend"
+	case c.State == "running":
+		return "ok"
+	}
+	return "off"
+}
+
+// navCount reads a side-navigation count from the dashboard data (-1 = don't show).
+func navCount(v any, name string) int {
+	if d, ok := v.(indexData); ok && d.Counts != nil {
+		return d.Counts[name]
+	}
+	return -1
+}
+
+// backTo is where Sync and Apply return to: the Overview if they were pressed there,
+// otherwise the Deployment page, which shows the plan.
+func backTo(r *http.Request, anchor string) string {
+	if ref, err := url.Parse(r.Referer()); err == nil && ref.Path == "/" {
+		return "/" + anchor
+	}
+	return "/deployment" + anchor // the Sync Plan and Apply live there
 }

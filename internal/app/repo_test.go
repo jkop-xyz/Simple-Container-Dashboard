@@ -3,6 +3,7 @@ package app_test
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -42,7 +43,7 @@ func TestStartClonesMissingDeploymentRepo(t *testing.T) {
 	if got := strings.TrimSpace(gittest.Git(t, clone, "rev-parse", "HEAD")); got != head {
 		t.Fatalf("clone at %s, want %s", got, head)
 	}
-	_, body := h.get("/")
+	body := mustGet(h)
 	assertContains(t, body, `title="`+head+`"`, ">"+head[:7]+"<")
 }
 
@@ -63,7 +64,7 @@ func TestContainersAreGroupedByStack(t *testing.T) {
 		dockertest.Container{ID: "5", Name: "stray-1", State: "running", Labels: composeLabel("notinrepo")},
 	)
 
-	_, body := h.get("/")
+	body := mustGet(h)
 	sections := splitSections(body)
 	want := map[string][]string{
 		"App1":     {"app1-web-1"},
@@ -96,7 +97,7 @@ func TestHiddenDirsAndRootFilesAreNotStacks(t *testing.T) {
 	})
 	h := startDashboard(t, withRepo(remote.URL, filepath.Join(t.TempDir(), "repo")))
 
-	_, body := h.get("/")
+	body := mustGet(h)
 	sections := splitSections(body)
 	if len(sections) != 2 || sections["real"] == "" {
 		t.Errorf("want Stacks real and notes, got sections %v", keys(sections))
@@ -110,7 +111,7 @@ func TestHeaderShowsDeploymentRepo(t *testing.T) {
 	remote.Commit("init", map[string]string{"a/compose.yaml": "services: {}\n"})
 	h := startDashboard(t, withRepo(remote.URL, filepath.Join(t.TempDir(), "repo")))
 
-	_, body := h.get("/")
+	body := mustGet(h)
 	assertContains(t, body, `class="repo">`+remote.URL+`<`)
 }
 
@@ -145,7 +146,7 @@ func TestFailedCloneIsShownOnDashboard(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist.git")
 	h := startDashboard(t, withRepo(missing, filepath.Join(t.TempDir(), "repo")))
 
-	code, body := h.get("/")
+	code, body := h.get("/containers")
 	if code != 200 {
 		t.Errorf("status %d: a broken repo must not break the container view", code)
 	}
@@ -159,23 +160,24 @@ func TestNonEmptyNonGitClonePathIsRefused(t *testing.T) {
 	os.WriteFile(filepath.Join(clone, "precious.txt"), []byte("keep\n"), 0o644)
 
 	h := startDashboard(t, withRepo(remote.URL, clone))
-	_, body := h.get("/")
+	body := mustGet(h)
 	assertContains(t, body, "is not a git clone, and is not empty")
 	if b, _ := os.ReadFile(filepath.Join(clone, "precious.txt")); string(b) != "keep\n" {
 		t.Error("existing file was touched")
 	}
 }
 
-// splitSections returns each Stack section's HTML keyed by its data-stack attribute
-// ("" is the Other group).
+// splitSections returns each Stack's HTML keyed by its data-stack attribute ("" is the
+// Other group): its group in the Containers table and its row in the Stacks card,
+// concatenated.
 func splitSections(body string) map[string]string {
 	out := map[string]string{}
-	parts := strings.Split(body, `<section class="stack`)
-	for _, p := range parts[1:] {
-		_, rest, _ := strings.Cut(p, `data-stack="`)
-		name, html, _ := strings.Cut(rest, `"`)
-		html, _, _ = strings.Cut(html, "</section>")
-		out[name] = html
+	re := regexp.MustCompile(`<(tbody|li|section) class="stack[^"]*" data-stack="([^"]*)"`)
+	for _, m := range re.FindAllStringSubmatchIndex(body, -1) {
+		tag, name := body[m[2]:m[3]], body[m[4]:m[5]]
+		rest := body[m[1]:]
+		html, _, _ := strings.Cut(rest, "</"+tag+">")
+		out[name] += html
 	}
 	return out
 }

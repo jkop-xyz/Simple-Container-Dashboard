@@ -271,6 +271,14 @@ var Filters = map[string]string{
 	"unmanaged": "unmanaged containers",
 }
 
+// FilterTitles are the filters' short names, as the navigation shows them.
+var FilterTitles = map[string]string{
+	"attention": "Needs attention",
+	"stopped":   "Not running",
+	"selected":  "Selected Stacks",
+	"unmanaged": "Unmanaged",
+}
+
 // Filter narrows the dashboard to one of Filters. Unknown names leave it unchanged.
 func (d Dashboard) Filter(name string) Dashboard {
 	keepRows := func(cs []Container, ok func(Container) bool) []Container {
@@ -310,4 +318,39 @@ func (d Dashboard) Filter(name string) Dashboard {
 		return Dashboard{Other: d.Other}
 	}
 	return d
+}
+
+// Search narrows the dashboard to containers whose name or image contains q, and to
+// every container of Stacks whose name contains q (case-insensitive).
+func (d Dashboard) Search(q string) Dashboard {
+	q = strings.ToLower(strings.TrimSpace(q))
+	if q == "" {
+		return d
+	}
+	hit := func(c Container) bool {
+		return strings.Contains(strings.ToLower(c.Name), q) || strings.Contains(strings.ToLower(c.Image), q)
+	}
+	var f Dashboard
+	for _, g := range d.Groups {
+		if strings.Contains(strings.ToLower(g.Stack.Name), q) {
+			f.Groups = append(f.Groups, g)
+			continue
+		}
+		var cs []Container
+		for _, c := range g.Containers {
+			if hit(c) {
+				cs = append(cs, c)
+			}
+		}
+		if len(cs) > 0 {
+			g.Containers = cs
+			f.Groups = append(f.Groups, g)
+		}
+	}
+	for _, c := range d.Other {
+		if hit(c) {
+			f.Other = append(f.Other, c)
+		}
+	}
+	return f
 }

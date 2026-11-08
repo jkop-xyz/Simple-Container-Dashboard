@@ -75,7 +75,7 @@ func TestCPUAndMemoryFromRuntimeSamples(t *testing.T) {
 	if c := s.Containers[0]; c.CPU != "10.0%" || c.Memory != "3.0 GiB" {
 		t.Errorf("second reading: cpu %q mem %q", c.CPU, c.Memory)
 	}
-	assertContains(t, row(mustGet(h), "c1"), `class="cpu num">`, `class="mem num">3.0 GiB<`)
+	assertContains(t, row(mustGet(h), "c1"), `class="cpu num">`, `>3.0 GiB<`)
 }
 
 func TestCPUIsUnknownUntilThereAreTwoReadings(t *testing.T) {

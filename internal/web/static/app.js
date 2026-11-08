@@ -68,11 +68,12 @@ async function refreshStatus() {
   try {
     const res = await fetch("/api/status", { cache: "no-store" });
     if (!res.ok) return;
-    const { containers } = await res.json();
+    const { containers, memTotal } = await res.json();
+    const peakMem = memTotal || Math.max(0, ...containers.map((c) => c.memoryBytes || 0));
     for (const c of containers) {
       const row = document.querySelector(`tr.container[data-id="${CSS.escape(c.id)}"]`);
       if (!row) continue;
-      row.className = `container state-${c.state}${c.health === "unhealthy" ? " is-unhealthy" : ""}${c.crashLooping ? " is-crashloop" : ""}`;
+      row.className = `container state-${c.state} si-${statusIcon(c)}${c.health === "unhealthy" ? " is-unhealthy" : ""}${c.crashLooping ? " is-crashloop" : ""}`;
       const loop = row.querySelector(".crashloop-badge");
       if (loop) loop.hidden = !c.crashLooping;
       row.dataset.health = c.health;
@@ -86,9 +87,17 @@ async function refreshStatus() {
       row.querySelector(".restarts-badge").classList.toggle("is-zero", !c.restarts);
       row.querySelector(".cpu").textContent = c.cpu;
       const pct = parseFloat(c.cpu);
+      const load = pct >= 85 ? " bar-bad" : pct >= 50 ? " bar-warn" : "";
       const fill = row.querySelector(".bar-fill");
       fill.style.width = `${Number.isFinite(pct) ? Math.min(pct, 100) : 0}%`;
-      fill.className = `bar-fill${pct >= 85 ? " bar-bad" : pct >= 50 ? " bar-warn" : ""}`;
+      fill.className = `bar-fill${load}`;
+      const spark = row.querySelector(".spark-fill");
+      if (spark) { spark.setAttribute("d", c.spark || ""); spark.setAttribute("class", `spark-fill${load}`); }
+      const membar = row.querySelector(".membar-fill");
+      if (membar) {
+        const share = peakMem && c.memoryBytes ? c.memoryBytes / peakMem : 0;
+        membar.style.width = `${share ? Math.max(3, Math.min(100, Math.sqrt(share) * 100)) : 0}%`;
+      }
       row.querySelector(".mem").textContent = c.memory;
       row.querySelector(".status").textContent = c.status;
     }
@@ -98,6 +107,13 @@ async function refreshStatus() {
   }
 }
 
+// The row's status icon: matches sicon() on the server.
+function statusIcon(c) {
+  if (needsAttention(c)) return "err";
+  if ((c.state === "running" && c.health === "starting") || c.state === "restarting") return "pend";
+  return c.state === "running" ? "ok" : "off";
+}
+
 // Keep the overview tiles and each Stack's pill in step with the refreshed rows.
 function needsAttention(c) {
   return c.crashLooping || c.health === "unhealthy" || c.state === "restarting" || c.state === "dead" ||
@@ -105,21 +121,26 @@ function needsAttention(c) {
 }
 
 function refreshSummaries(containers) {
-  const running = containers.filter((c) => c.state === "running").length;
-  const runTile = document.querySelector('[data-tile="running"]');
-  if (runTile) runTile.innerHTML = `${running}<small>/ ${containers.length}</small>`;
-  const attTile = document.querySelector('[data-tile="attention"]');
-  if (attTile) attTile.textContent = containers.filter(needsAttention).length;
+  const set = (key, n) => {
+    const el = document.querySelector(`[data-count="${key}"]`);
+    if (!el) return;
+    el.textContent = n;
+    if (key === "attention") el.classList.toggle("nav-count-bad", n > 0);
+  };
+  set("total", containers.length);
+  set("attention", containers.filter(needsAttention).length);
+  set("stopped", containers.filter((c) => c.state !== "running").length);
 
-  for (const card of document.querySelectorAll("section.stack.card")) {
-    const pill = card.querySelector(".stack-pill");
+  for (const group of document.querySelectorAll("tbody.stack")) {
+    const pill = group.querySelector(".stack-pill");
     if (!pill) continue;
-    const rows = [...card.querySelectorAll("tr.container")];
+    const rows = [...group.querySelectorAll("tr.container")];
     const up = rows.filter((r) => r.classList.contains("state-running")).length;
     const sick = rows.filter((r) => r.classList.contains("is-unhealthy")).length;
     const looping = rows.filter((r) => r.classList.contains("is-crashloop")).length;
     const restarted = rows.some((r) => Number(r.dataset.restarts) > 0);
-    pill.textContent = `${looping ? `${looping} crash-looping · ` : ""}${sick ? `${sick} unhealthy · ` : ""}${up}/${rows.length} running`;
+    const problems = [looping && `${looping} crash-looping`, sick && `${sick} unhealthy`].filter(Boolean);
+    pill.textContent = problems.length ? problems.join(" · ") : `${up}/${rows.length} running${restarted ? " · restarted" : ""}`;
     pill.className = `badge stack-pill ${sick || looping ? "badge-bad" : up < rows.length || restarted ? "badge-warn" : "badge-ok"}`;
   }
 }
@@ -243,4 +264,157 @@ if (logView) {
   });
 
   connect();
+}
+
+// Side navigation drawer on narrow screens: Escape or a click outside closes it, and
+// focus goes back to the toggle.
+const navToggle = document.querySelector(".nav-toggle");
+const scrim = document.querySelector(".scrim");
+const appbar = document.querySelector(".appbar");
+const header = document.querySelector(".header");
+const syncAppbarHeight = () => {
+  const root = document.documentElement.style;
+  if (appbar) root.setProperty("--appbar", `${appbar.offsetHeight}px`);
+  if (header) root.setProperty("--header", `${getComputedStyle(header).position === "sticky" ? header.offsetHeight : appbar?.offsetHeight || 0}px`);
+};
+syncAppbarHeight();
+window.addEventListener("resize", syncAppbarHeight);
+function setNav(open, { focusToggle = false } = {}) {
+  document.body.classList.toggle("nav-open", open);
+  // While the drawer is open, everything behind it is out of reach.
+  for (const el of document.querySelectorAll("main, .toolbar, .search, .appbar-actions")) el.inert = open;
+  navToggle?.setAttribute("aria-expanded", String(open));
+  if (scrim) scrim.hidden = !open;
+  if (open) document.querySelector("#sidenav .nav-item")?.focus();
+  else if (focusToggle) navToggle?.focus();
+}
+navToggle?.addEventListener("click", () => setNav(!document.body.classList.contains("nav-open")));
+// Growing past the drawer breakpoint while it is open must not leave the page inert.
+matchMedia("(max-width: 1100px)").addEventListener("change", (e) => { if (!e.matches) setNav(false); });
+scrim?.addEventListener("click", () => setNav(false, { focusToggle: true }));
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.body.classList.contains("nav-open")) setNav(false, { focusToggle: true });
+});
+
+// Search: on the dashboard it narrows the table live (by container name, image or
+// Stack); from other pages, or without JS, it submits to /?q=.
+const search = document.querySelector(".global-search");
+const table = document.querySelector("table.containers");
+if (search && table) {
+  const none = document.querySelector(".no-match");
+  const status = document.querySelector(".search-status");
+  const count = document.querySelector(".container-count");
+  const countText = count?.textContent;
+  const total = document.querySelectorAll("tr.container").length;
+  let announceTimer;
+  const apply = () => {
+    const q = search.value.trim().toLowerCase();
+    let shown = 0;
+    for (const group of document.querySelectorAll("tbody.stack")) {
+      const stackHit = q && (group.dataset.stack || "").toLowerCase().includes(q);
+      let visible = 0;
+      for (const row of group.querySelectorAll("tr.container")) {
+        const hit = !q || stackHit || row.dataset.name.toLowerCase().includes(q) || row.dataset.image.toLowerCase().includes(q);
+        row.hidden = !hit;
+        if (hit) visible++;
+      }
+      group.hidden = q !== "" && !stackHit && visible === 0;
+      shown += visible;
+    }
+    for (const row of document.querySelectorAll("#stacks .stack-row")) {
+      row.hidden = q !== "" && !row.dataset.stack.toLowerCase().includes(q);
+    }
+    for (const sel of [".charts", "#attention", "#sync"]) {
+      const el = document.querySelector(sel);
+      if (el) el.hidden = q !== "";
+    }
+    if (none) none.hidden = !q || shown > 0;
+    if (count) count.textContent = q ? `${shown} shown of ${total}` : countText;
+    clearTimeout(announceTimer); // announce once typing pauses, not on every key
+    announceTimer = setTimeout(() => {
+      if (status) status.textContent = q ? (shown ? `${shown} container${shown === 1 ? "" : "s"} match “${search.value.trim()}”.` : "No containers match your search.") : "";
+    }, 500);
+  };
+  search.form?.addEventListener("submit", (e) => { e.preventDefault(); apply(); });
+  search.addEventListener("input", apply);
+  search.addEventListener("keydown", (e) => { if (e.key === "Escape") { search.value = ""; apply(); } });
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && search && document.activeElement === document.body) { e.preventDefault(); search.focus(); }
+});
+
+// Host CPU and memory charts, drawn as SVG from /api/metrics.
+const charts = [...document.querySelectorAll(".chart[data-series]")];
+if (charts.length) {
+  const SVG = "http://www.w3.org/2000/svg";
+  const el = (name, attrs) => {
+    const n = document.createElementNS(SVG, name);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    return n;
+  };
+  const fmtBytes = (b) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} Gi` : `${Math.round(b / (1 << 20))} Mi`;
+  const fmt = (v, unit) => unit === "bytes" ? fmtBytes(v) : (v === 0 ? "0" : v < 0.1 ? v.toFixed(2) : v.toFixed(v < 10 ? 2 : 1));
+  const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  // A "nice" top for the y axis: 1, 2 or 5 × 10^n, above the peak.
+  const niceTop = (v, unit) => {
+    if (v <= 0) return unit === "bytes" ? 1 << 28 : 0.1;
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v * 1.1) return m * p;
+    return 10 * p;
+  };
+
+  function draw(box, points) {
+    if (points.length < 2) return;
+    const unit = box.dataset.unit;
+    const cs = getComputedStyle(box);
+    const W = (box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)) || 600;
+    const H = (box.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) || 200;
+    const L = 56, R = 12, T = 12, B = 30;
+    const iw = W - L - R, ih = H - T - B;
+    const t0 = new Date(points[0].t).getTime(), t1 = new Date(points[points.length - 1].t).getTime();
+    const top = niceTop(Math.max(...points.map((p) => p.v)), unit);
+    const x = (t) => L + ((new Date(t).getTime() - t0) / Math.max(1, t1 - t0)) * iw;
+    const y = (v) => T + ih - (v / top) * ih;
+
+    const svg = el("svg", { viewBox: `0 0 ${W} ${H}` });
+    const axis = el("g", { class: "axis" });
+    for (let i = 0; i <= 4; i++) {
+      const v = (top / 4) * i, yy = y(v);
+      svg.append(el("line", { class: "gridline", x1: L, x2: W - R, y1: yy, y2: yy }));
+      const label = el("text", { x: L - 8, y: yy + 4, "text-anchor": "end" });
+      label.textContent = fmt(v, unit);
+      axis.append(label);
+    }
+    for (let i = 0; i <= 4; i++) {
+      const t = t0 + ((t1 - t0) / 4) * i;
+      const label = el("text", { x: L + (iw / 4) * i, y: H - 8, "text-anchor": i === 0 ? "start" : i === 4 ? "end" : "middle" });
+      label.textContent = clock(t);
+      axis.append(label);
+    }
+    const line = points.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ");
+    svg.append(el("path", { class: "area", d: `${line} L${x(points[points.length - 1].t).toFixed(1)} ${T + ih} L${L} ${T + ih} Z` }));
+    svg.append(el("path", { class: "line", d: line }));
+    svg.append(el("line", { class: "baseline", x1: L, x2: W - R, y1: T + ih, y2: T + ih }));
+    svg.append(axis);
+    box.replaceChildren(svg);
+
+    const now = document.querySelector(`[data-now="${box.dataset.series}"]`);
+    const latest = `${fmt(points[points.length - 1].v, unit)}${unit === "bytes" ? "B" : " cores"}`;
+    if (now) now.textContent = `${latest} now`;
+    box.setAttribute("aria-label", `${box.dataset.series === "cpu" ? "CPU" : "Memory"} usage over the last ${Math.max(1, Math.round((t1 - t0) / 60000))} minutes, now ${latest}`);
+  }
+
+  async function refreshCharts() {
+    if (document.hidden) return;
+    try {
+      const res = await fetch("/api/metrics", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      for (const box of charts) draw(box, data[box.dataset.series] || []);
+    } catch (_) { /* try again next time */ }
+  }
+  refreshCharts();
+  setInterval(refreshCharts, 15000);
+  let resizeTimer;
+  window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(refreshCharts, 200); });
 }

@@ -12,7 +12,7 @@ import (
 // getAs fetches the dashboard as if the browser had used host to reach it.
 func (h *harness) getAs(host string) string {
 	h.t.Helper()
-	req, _ := http.NewRequest(http.MethodGet, h.srv.URL+"/", nil)
+	req, _ := http.NewRequest(http.MethodGet, h.srv.URL+"/containers", nil)
 	req.Host = host
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -24,7 +24,8 @@ func (h *harness) getAs(host string) string {
 }
 
 func portsCell(body, id string) string {
-	_, rest, _ := strings.Cut(row(body, id), `class="ports">`)
+	_, rest, _ := strings.Cut(row(body, id), `class="ports`)
+	_, rest, _ = strings.Cut(rest, ">")
 	cell, _, _ := strings.Cut(rest, "</td>")
 	return cell
 }
@@ -41,9 +42,9 @@ func TestPublishedTCPPortsLinkToTheBrowsersHostname(t *testing.T) {
 
 	cell := portsCell(h.getAs("nas.lan:1234"), "j")
 	assertContains(t, cell,
-		`href="http://nas.lan:8096" target="_blank" rel="noopener" aria-label="Open port 8096 in a new tab">8096 ↗`,
+		`href="http://nas.lan:8096" target="_blank" rel="noopener" aria-label="Open port 8096 in a new tab">8096<svg`,
 		`href="http://nas.lan:8920"`)
-	if n := strings.Count(cell, "8096 ↗"); n != 1 {
+	if n := strings.Count(cell, ">8096<svg"); n != 1 {
 		t.Errorf("IPv4 and IPv6 bindings should merge into one link, got %d", n)
 	}
 }

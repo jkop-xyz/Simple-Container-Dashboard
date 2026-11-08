@@ -60,7 +60,8 @@ func (e *syncEnv) sync() string {
 	if resp.StatusCode != http.StatusOK {
 		e.t.Fatalf("POST /sync landed on status %d", resp.StatusCode)
 	}
-	return mustGet(e.harness)
+	_, body := e.get("/deployment") // the Sync Plan and the Stacks
+	return body
 }
 
 // deployed pretends Apply already deployed these Stacks at the remote's current commit.

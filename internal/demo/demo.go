@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math/rand/v2"
 	"net/http"
 	"os"
@@ -80,11 +81,12 @@ type Demo struct {
 	dir     string
 	handler http.Handler
 
-	mu     sync.Mutex
-	cpu    map[string]float64
-	mem    map[string]uint64
-	totals map[string]dockertest.Stats
-	pushes int
+	mu      sync.Mutex
+	started map[string]time.Time
+	cpu     map[string]float64
+	mem     map[string]uint64
+	totals  map[string]dockertest.Stats
+	pushes  int
 }
 
 // New builds a demo in a temporary directory. Close removes it.
@@ -99,7 +101,7 @@ func New(version string) (*Demo, error) {
 		return nil, err
 	}
 	d := &Demo{api: api, git: &fakeGit{}, dir: dir,
-		cpu: map[string]float64{}, mem: map[string]uint64{}, totals: map[string]dockertest.Stats{}}
+		cpu: map[string]float64{}, mem: map[string]uint64{}, totals: map[string]dockertest.Stats{}, started: map[string]time.Time{}}
 	d.seedRepo()
 	if err := d.seedState(); err != nil {
 		d.Close()
@@ -122,6 +124,7 @@ func New(version string) (*Demo, error) {
 		LatestRelease: func(context.Context) (string, error) { return "", errors.New("demo mode is offline") },
 		Demo:          true,
 		WatchFor:      15 * time.Second, // a quicker post-Apply health check to watch
+		SampleEvery:   5 * time.Second,  // charts fill up quickly
 	})
 	if err != nil {
 		d.Close()
@@ -204,8 +207,10 @@ func (d *Demo) seedState() error {
 }
 
 func (d *Demo) seedContainers() {
+	ages := map[string]time.Duration{"homeassistant": 40 * time.Minute, "jellyfin": 2 * time.Hour, "nextcloud": 26 * time.Hour, "traefik": 5 * 24 * time.Hour}
 	for _, name := range []string{"homeassistant", "jellyfin", "nextcloud", "traefik"} {
 		d.deploy(name, imageOf(d.git.commits[0].files[name+"/compose.yaml"]))
+		d.backdate(name, ages[name])
 	}
 	d.api.Update(func(cs []dockertest.Container) []dockertest.Container {
 		return append(cs,
@@ -216,6 +221,39 @@ func (d *Demo) seedContainers() {
 		)
 	})
 	d.loadFor("c0ffee000002", 0.4, 9)
+	d.mu.Lock()
+	d.started["c0ffee000002"] = time.Now().Add(-5 * 24 * time.Hour)
+	d.mu.Unlock()
+}
+
+// backdate pretends a Stack's containers started age ago.
+func (d *Demo) backdate(stack string, age time.Duration) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, c := range d.api.Containers() {
+		if c.Labels["com.docker.compose.project"] == stack {
+			d.started[c.ID] = time.Now().Add(-age)
+		}
+	}
+}
+
+// upFor renders a running container's status the way Docker does ("Up 2 hours").
+func upFor(d time.Duration) string {
+	switch {
+	case d < time.Second:
+		return "Up Less than a second"
+	case d < time.Minute:
+		return fmt.Sprintf("Up %d seconds", int(d.Seconds()))
+	case d < 2*time.Minute:
+		return "Up About a minute"
+	case d < time.Hour:
+		return fmt.Sprintf("Up %d minutes", int(d.Minutes()))
+	case d < 2*time.Hour:
+		return "Up About an hour"
+	case d < 48*time.Hour:
+		return fmt.Sprintf("Up %d hours", int(d.Hours()))
+	}
+	return fmt.Sprintf("Up %d days", int(d.Hours()/24))
 }
 
 func imageOf(compose string) string {
@@ -236,16 +274,24 @@ func (d *Demo) deploy(stack, image string) []string {
 		name := fmt.Sprintf("%s-%s-1", stack, s.name)
 		id := fmt.Sprintf("%x", rand.Uint64())
 		labels := map[string]string{"com.docker.compose.project": stack, "com.docker.compose.service": s.name}
-		add = append(add, dockertest.Container{
+		c := dockertest.Container{
 			ID: id, Name: name, Image: image, State: "running", Status: "Up Less than a second",
 			Labels: labels, Health: s.health, RestartCount: s.restarts, Ports: s.ports,
 			Logs: bootLog(stack, s.name, image),
-		})
+		}
+		if s.health == "unhealthy" { // homeassistant: keeps failing its healthcheck and exiting
+			c.ExitCode, c.FinishedAt = 1, time.Now().Add(-90*time.Second)
+			c.HealthOutput = "curl: (7) Failed to connect to localhost port 8123 after 2 ms: Connection refused"
+		}
+		add = append(add, c)
 		out = append(out, fmt.Sprintf(" Container %s  Started", name))
 	}
 	d.api.Update(func(cs []dockertest.Container) []dockertest.Container { return append(cs, add...) })
 	for i, s := range services[stack] {
 		d.loadFor(add[i].ID, s.cpu, s.memMiB)
+		d.mu.Lock()
+		d.started[add[i].ID] = time.Now()
+		d.mu.Unlock()
 	}
 	return out
 }
@@ -329,12 +375,26 @@ func (d *Demo) Animate(ctx context.Context) {
 				for j := range cs {
 					if cs[j].Labels["com.docker.compose.project"] == "homeassistant" {
 						cs[j].RestartCount++
-						cs[j].Status = "Up 4 seconds"
+						cs[j].FinishedAt = time.Now()
+						d.mu.Lock()
+						d.started[cs[j].ID] = time.Now().Add(-4 * time.Second)
+						d.mu.Unlock()
 					}
 				}
 				return cs
 			})
 		}
+		d.mu.Lock()
+		started := maps.Clone(d.started)
+		d.mu.Unlock()
+		d.api.Update(func(cs []dockertest.Container) []dockertest.Container {
+			for j := range cs {
+				if t, ok := started[cs[j].ID]; ok && cs[j].State == "running" {
+					cs[j].Status = upFor(time.Since(t))
+				}
+			}
+			return cs
+		})
 		for _, c := range d.api.Containers() {
 			if c.State != "running" {
 				continue

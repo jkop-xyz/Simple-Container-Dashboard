@@ -19,17 +19,24 @@ type Usage struct {
 type Collector struct {
 	mu   sync.Mutex
 	prev map[string]dockerapi.Sample
+	last map[string]Usage
 }
 
 // Update records a new sample and returns the usage since the previous one.
 func (c *Collector) Update(id string, s dockerapi.Sample) Usage {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.prev == nil {
-		c.prev = map[string]dockerapi.Sample{}
+		c.prev, c.last = map[string]dockerapi.Sample{}, map[string]Usage{}
 	}
 	prev, ok := c.prev[id]
+	// Asked again before the runtime has a new reading: the answer hasn't changed.
+	if ok && s.SystemCPU == prev.SystemCPU && s.CPUTotal == prev.CPUTotal {
+		u := c.last[id]
+		u.Memory = s.Memory
+		return u
+	}
 	c.prev[id] = s
-	c.mu.Unlock()
 
 	u := Usage{Memory: s.Memory}
 	prevTotal, prevSystem := s.PreCPUTotal, s.PreSystemCPU
@@ -44,6 +51,7 @@ func (c *Collector) Update(id string, s dockerapi.Sample) Usage {
 		u.CPUPercent = float64(s.CPUTotal-prevTotal) / float64(s.SystemCPU-prevSystem) * cpus * 100
 		u.HasCPU = true
 	}
+	c.last[id] = u
 	return u
 }
 
@@ -54,6 +62,7 @@ func (c *Collector) Forget(keep map[string]bool) {
 	for id := range c.prev {
 		if !keep[id] {
 			delete(c.prev, id)
+			delete(c.last, id)
 		}
 	}
 }

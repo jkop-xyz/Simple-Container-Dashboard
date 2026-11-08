@@ -71,7 +71,7 @@ func serve(args []string) error {
 		return err
 	}
 
-	a, err := app.New(app.Options{Config: cfg, Version: version})
+	a, err := app.New(app.Options{Config: cfg, Version: version, SampleEvery: 15 * time.Second})
 	if err != nil {
 		return err
 	}

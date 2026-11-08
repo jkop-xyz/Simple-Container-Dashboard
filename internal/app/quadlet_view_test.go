@@ -120,7 +120,7 @@ func TestUnitLogStreamsTheJournal(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("page status %d", code)
 	}
-	assertContains(t, page, "app.service", `data-stream="/units/app.service/logs/stream"`, "Back to the dashboard")
+	assertContains(t, page, "app.service", `data-stream="/units/app.service/logs/stream"`, `class="crumb crumb-home" href="/">Overview</a>`)
 
 	got := collect(t, e.logEvents(context.Background(), "../units/app.service"))
 	if len(got) != 2 || !strings.Contains(got[0], "image not found") || !strings.Contains(got[1], "Failed") {
