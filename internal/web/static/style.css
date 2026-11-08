@@ -403,7 +403,7 @@ a.port:hover { background: var(--accent); color: var(--accent-fg); }
 
 /* ---------- Pass 4: one badge system, attention, wide layout, a11y ---------- */
 /* All small status markers share one shape; colour carries the meaning. */
-.badge, .pill, .state, .health, .restarts-badge, .unit-state, .action, .chip-kind {
+.badge, .pill, .state, .health, .restarts-badge, .crashloop-badge, .unit-state, .action, .chip-kind {
   display: inline-flex; align-items: center; gap: 5px;
   height: 22px; padding: 0 8px; border-radius: 999px; border: 0;
   font-size: 12px; font-weight: 600; line-height: 1; white-space: nowrap;
@@ -472,3 +472,16 @@ tr:target td { background: var(--warn-soft) !important; }
   .switch input:checked + .switch-track { background: Highlight; }
   .dot { forced-color-adjust: none; }
 }
+
+/* ---------- Crash loops & filters ---------- */
+.crashloop-badge { background: var(--bad); color: var(--bg); }
+.crashloop-badge[hidden] { display: none; }
+.is-crashloop .dot { background: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft); animation: pulse 1.2s ease-in-out infinite; }
+.is-crashloop td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+.is-crashloop .restarts-badge { background: var(--bad-soft); color: var(--bad); }
+a.tile:hover { border-color: var(--accent); transform: translateY(-1px); }
+a.tile.tile-bad:hover { border-color: var(--bad); }
+.tile.is-active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent), var(--shadow); }
+.filter-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 10px 14px; margin-bottom: 14px; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent-ink); }
+.filter-bar .btn { margin-left: auto; }
+@media (prefers-reduced-motion: reduce) { .is-crashloop .dot { animation: none; } }

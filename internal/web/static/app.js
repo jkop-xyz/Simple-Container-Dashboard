@@ -72,7 +72,9 @@ async function refreshStatus() {
     for (const c of containers) {
       const row = document.querySelector(`tr.container[data-id="${CSS.escape(c.id)}"]`);
       if (!row) continue;
-      row.className = `container state-${c.state}${c.health === "unhealthy" ? " is-unhealthy" : ""}`;
+      row.className = `container state-${c.state}${c.health === "unhealthy" ? " is-unhealthy" : ""}${c.crashLooping ? " is-crashloop" : ""}`;
+      const loop = row.querySelector(".crashloop-badge");
+      if (loop) loop.hidden = !c.crashLooping;
       row.dataset.health = c.health;
       row.dataset.restarts = c.restarts;
       row.dataset.status = c.status;
@@ -98,7 +100,7 @@ async function refreshStatus() {
 
 // Keep the overview tiles and each Stack's pill in step with the refreshed rows.
 function needsAttention(c) {
-  return c.health === "unhealthy" || c.state === "restarting" || c.state === "dead" ||
+  return c.crashLooping || c.health === "unhealthy" || c.state === "restarting" || c.state === "dead" ||
     (c.state === "exited" && !c.status.startsWith("Exited (0)"));
 }
 
@@ -115,9 +117,10 @@ function refreshSummaries(containers) {
     const rows = [...card.querySelectorAll("tr.container")];
     const up = rows.filter((r) => r.classList.contains("state-running")).length;
     const sick = rows.filter((r) => r.classList.contains("is-unhealthy")).length;
+    const looping = rows.filter((r) => r.classList.contains("is-crashloop")).length;
     const restarted = rows.some((r) => Number(r.dataset.restarts) > 0);
-    pill.textContent = `${sick ? `${sick} unhealthy · ` : ""}${up}/${rows.length} running`;
-    pill.className = `badge stack-pill ${sick ? "badge-bad" : up < rows.length || restarted ? "badge-warn" : "badge-ok"}`;
+    pill.textContent = `${looping ? `${looping} crash-looping · ` : ""}${sick ? `${sick} unhealthy · ` : ""}${up}/${rows.length} running`;
+    pill.className = `badge stack-pill ${sick || looping ? "badge-bad" : up < rows.length || restarted ? "badge-warn" : "badge-ok"}`;
   }
 }
 

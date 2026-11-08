@@ -44,22 +44,29 @@
   {{if .Error}}<div class="callout callout-bad error" role="alert">Can't reach the container runtime: {{.Error}}</div>{{end}}
   {{if .RepoError}}<div class="callout callout-bad error" role="status">Deployment Repo unavailable: {{.RepoError}}</div>{{end}}
 
-  {{$attention := .Attention}}
-  {{with .Summary}}{{if or .Total .Stacks}}
+  {{$attention := .Problems}}
+  {{with .Overview}}{{if or .Total .Stacks}}
   <section class="overview" aria-label="Overview">
-    <div class="tile"><span class="tile-label">Running</span><span class="tile-value" data-tile="running">{{.Running}}<small>/ {{.Total}}</small></span><span class="tile-sub">containers</span></div>
-    {{if $attention}}<a class="tile tile-bad" href="#attention" data-tile-box="attention">{{else}}<div class="tile" data-tile-box="attention">{{end}}
-      <span class="tile-label">Needs attention</span><span class="tile-value" data-tile="attention">{{len $attention}}</span>
-      <span class="tile-sub">{{if $attention}}{{.Unhealthy}} unhealthy · see below ↓{{else}}all healthy{{end}}</span>
-    {{if $attention}}</a>{{else}}</div>{{end}}
-    <div class="tile"><span class="tile-label">Stacks</span><span class="tile-value">{{.Selected}}<small>/ {{.Stacks}}</small></span><span class="tile-sub">selected on this host{{if .Invalid}} · <span class="bad">{{.Invalid}} invalid</span>{{end}}</span></div>
-    <div class="tile"><span class="tile-label">Unmanaged</span><span class="tile-value">{{.Unmanaged}}</span><span class="tile-sub">not from the repo</span></div>
+    {{template "tile" (dict "Href" (ifelse (lt .Running .Total) "/?filter=stopped" "") "Active" (eq $.Filter "stopped") "Label" "Running" "Value" .Running "Of" .Total "Key" "running"
+      "Sub" (ifelse (lt .Running .Total) (printf "%d not running · show" (sub .Total .Running)) "containers") "Bad" false)}}
+    {{template "tile" (dict "Href" (ifelse $attention "/?filter=attention" "") "Active" (eq $.Filter "attention") "Label" "Needs attention" "Value" (len $attention) "Of" -1 "Key" "attention"
+      "Sub" (ifelse $attention "show only these" "all healthy") "Bad" (gt (len $attention) 0))}}
+    {{template "tile" (dict "Href" "/?filter=selected" "Active" (eq $.Filter "selected") "Label" "Stacks" "Value" .Selected "Of" .Stacks "Key" "stacks"
+      "Sub" (ifelse .Invalid (printf "selected here · %d invalid" .Invalid) "selected on this host") "Bad" false)}}
+    {{template "tile" (dict "Href" (ifelse .Unmanaged "/?filter=unmanaged" "") "Active" (eq $.Filter "unmanaged") "Label" "Unmanaged" "Value" .Unmanaged "Of" -1 "Key" "unmanaged"
+      "Sub" "not from the repo" "Bad" false)}}
   </section>
   {{end}}{{end}}
 
-  {{with $attention}}
+  {{if .Filter}}<div class="filter-bar" role="status">
+    <span>Showing only <b>{{.FilterLabel}}</b>.</span>
+    <a class="btn btn-secondary btn-sm show-all" href="/">Show everything</a>
+  </div>{{end}}
+
+  {{if not .Filter}}{{with $attention}}
   <section id="attention" class="card attention" aria-labelledby="attention-title">
-    <div class="card-head"><h2 id="attention-title">Needs attention</h2><span class="pill pill-bad">{{len .}}</span></div>
+    <div class="card-head"><h2 id="attention-title">Needs attention</h2><span class="badge badge-bad">{{len .}}</span>
+      <a class="card-head-end btn btn-ghost btn-sm" href="/?filter=attention">Show only these</a></div>
     <ul class="attention-list">
       {{range .}}<li class="attention-item sev-{{.Severity}}">
         <span class="dot" aria-hidden="true"></span>
@@ -70,7 +77,7 @@
       </li>{{end}}
     </ul>
   </section>
-  {{end}}
+  {{end}}{{end}}
 
   {{with .Sync}}{{template "sync" .}}{{end}}
 
@@ -87,7 +94,7 @@
       <span class="card-head-end">
         {{if and (not .Selected) .Deployed}}<span class="badge badge-bad pending">torn down at next Apply</span>{{else if and .Selected (not .Deployed)}}<span class="badge badge-ok pending">deploys at next Apply</span>{{end}}
         {{if not .Selected}}<span class="not-selected">not selected</span>{{end}}
-        {{if .Containers}}<span class="badge stack-pill {{if .Unhealthy}}badge-bad{{else if lt .Running (len .Containers)}}badge-warn{{else if .Restarted}}badge-warn{{else}}badge-ok{{end}}">{{if .Unhealthy}}{{.Unhealthy}} unhealthy · {{end}}{{.Running}}/{{len .Containers}} running</span>{{end}}
+        {{if .Containers}}<span class="badge stack-pill {{if or .Unhealthy .CrashLooping}}badge-bad{{else if lt .Running (len .Containers)}}badge-warn{{else if .Restarted}}badge-warn{{else}}badge-ok{{end}}">{{if .CrashLooping}}{{.CrashLooping}} crash-looping · {{end}}{{if .Unhealthy}}{{.Unhealthy}} unhealthy · {{end}}{{.Running}}/{{len .Containers}} running</span>{{end}}
       </span>
     </div>
     {{with .Stack.Problem}}<p class="problem">This Stack {{.}}.</p>{{end}}
@@ -124,7 +131,7 @@
   {{end}}
   </div>
 
-  {{with .Inactive}}
+  {{if not .Filter}}{{with .Inactive}}
   <h2 class="section-title">Not on this host</h2>
   <div class="card inactive">
     {{range .}}
@@ -137,10 +144,10 @@
     </section>
     {{end}}
   </div>
-  {{end}}
+  {{end}}{{end}}
 
   {{if and (not .Groups) (not .Other) (not .Error)}}
-  <div class="empty-state"><p class="empty">No containers on this host.</p></div>
+  <div class="empty-state"><p class="empty">{{if .Filter}}Nothing matches this filter.{{else}}No containers on this host.{{end}}</p></div>
   {{end}}
 </main>
 <script src="/static/app.js"></script>
@@ -155,7 +162,7 @@
   <tbody>
   {{$host := .Host}}
   {{range .Rows}}
-    <tr class="container state-{{.State}}{{if eq .Health "unhealthy"}} is-unhealthy{{end}}" data-id="{{.ID}}" id="c-{{.ID}}">
+    <tr class="container state-{{.State}}{{if eq .Health "unhealthy"}} is-unhealthy{{end}}{{if .CrashLooping}} is-crashloop{{end}}" data-id="{{.ID}}" id="c-{{.ID}}">
       <td>
         <div class="cname"><span class="dot" aria-hidden="true"></span><span class="name">{{.Name}}</span></div>
         <div class="image mono" title="{{.Image}}">{{.Image}}</div>
@@ -165,6 +172,7 @@
           <span class="state">{{.State}}</span>
           <span class="health health-{{.Health}}">{{health .Health}}</span>
           <span class="restarts-badge{{if not .RestartCount}} is-zero{{end}}" title="restarts">↻ <span class="restarts">{{.RestartCount}}</span></span>
+          <span class="crashloop-badge"{{if not .CrashLooping}} hidden{{end}}>crash-looping</span>
         </div>
         <div class="status">{{.Status}}</div>
       </td>
@@ -281,3 +289,9 @@
   </label>
   <noscript><button class="btn btn-sm">Save</button></noscript>
 </form>{{end}}
+
+{{define "tile"}}{{if .Href}}<a class="tile{{if .Bad}} tile-bad{{end}}{{if .Active}} is-active{{end}}" href="{{.Href}}" data-tile-box="{{.Key}}"{{if .Active}} aria-current="true"{{end}}>{{else}}<div class="tile" data-tile-box="{{.Key}}">{{end}}
+  <span class="tile-label">{{.Label}}</span>
+  <span class="tile-value" data-tile="{{.Key}}">{{.Value}}{{if ge .Of 0}}<small>/ {{.Of}}</small>{{end}}</span>
+  <span class="tile-sub">{{.Sub}}</span>
+{{if .Href}}</a>{{else}}</div>{{end}}{{end}}

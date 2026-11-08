@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/config"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/crashloop"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/dockerapi"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/engine"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/stacks"
@@ -50,6 +51,13 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	},
 	"ports": view.Ports,
+	"ifelse": func(cond any, a, b any) any {
+		if truthy(cond) {
+			return a
+		}
+		return b
+	},
+	"sub": func(a, b int) int { return a - b },
 	// cpuBar is the CPU % clamped to 0–100, for the usage bar.
 	// load classifies CPU % for the bar colour.
 	"load": func(c view.Container) string {
@@ -152,9 +160,10 @@ type Deps struct {
 
 // Server is the dashboard HTTP handler.
 type Server struct {
-	deps  Deps
-	mux   *http.ServeMux
-	usage usage.Collector
+	deps    Deps
+	mux     *http.ServeMux
+	usage   usage.Collector
+	crashes crashloop.Tracker
 }
 
 // New returns the dashboard handler.
@@ -197,6 +206,11 @@ type indexData struct {
 	Missing    []string
 	NewRelease string
 	Demo       bool
+	// Overview and Problems describe the whole host, even when a filter narrows the view.
+	Overview view.Summary
+	Problems []view.Problem
+	// Filter is the active filter's name and FilterLabel what it shows ("" = everything).
+	Filter, FilterLabel string
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
@@ -228,9 +242,15 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		data.Error = err.Error()
 		status = http.StatusInternalServerError
 	}
-	data.Dashboard = view.Build(cs, ss, st.IsSelected)
-	for i := range data.Groups {
-		_, data.Groups[i].Deployed = st.Deployed[data.Groups[i].Stack.Name]
+	full := view.Build(cs, ss, st.IsSelected)
+	for i := range full.Groups {
+		_, full.Groups[i].Deployed = st.Deployed[full.Groups[i].Stack.Name]
+	}
+	data.Overview, data.Problems = full.Summary(), full.Attention()
+	data.Dashboard = full
+	if f := r.URL.Query().Get("filter"); view.Filters[f] != "" {
+		data.Filter, data.FilterLabel = f, view.Filters[f]
+		data.Dashboard = full.Filter(f)
 	}
 	if s.deps.Units != nil {
 		s.addUnits(ctx, &data.Dashboard)
@@ -393,6 +413,7 @@ func (s *Server) containers(ctx context.Context) ([]view.Container, error) {
 			defer func() { <-sem }()
 			if d, err := s.deps.Runtime.Inspect(ctx, c.ID); err == nil {
 				out[i].Details = d
+				out[i].CrashLooping = s.crashes.Observe(c.ID, d.RestartCount)
 			} else {
 				slog.Debug("inspecting container", "id", c.ID, "err", err)
 			}
@@ -408,6 +429,7 @@ func (s *Server) containers(ctx context.Context) ([]view.Container, error) {
 	}
 	wg.Wait()
 	s.usage.Forget(keep)
+	s.crashes.Forget(keep)
 	return out, nil
 }
 
@@ -421,6 +443,8 @@ type statusContainer struct {
 	Restarts int    `json:"restarts"`
 	CPU      string `json:"cpu"`
 	Memory   string `json:"memory"`
+	// CrashLooping is set while the container keeps restarting.
+	CrashLooping bool `json:"crashLooping"`
 }
 
 // status is the JSON the dashboard polls to refresh container state and usage.
@@ -444,7 +468,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		out.Containers = append(out.Containers, statusContainer{
 			ID: c.ID, Name: c.Name, State: c.State, Status: c.Status,
 			Health: healthText(c.Health), Restarts: c.RestartCount,
-			CPU: cpuText(c), Memory: memText(c),
+			CPU: cpuText(c), Memory: memText(c), CrashLooping: c.CrashLooping,
 		})
 	}
 	json.NewEncoder(w).Encode(out)
@@ -680,4 +704,21 @@ func render(w http.ResponseWriter, status int, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	buf.WriteTo(w)
+}
+
+// truthy follows template truthiness for the ifelse helper.
+func truthy(v any) bool {
+	switch x := v.(type) {
+	case nil:
+		return false
+	case bool:
+		return x
+	case int:
+		return x != 0
+	case string:
+		return x != ""
+	case []view.Problem:
+		return len(x) > 0
+	}
+	return true
 }

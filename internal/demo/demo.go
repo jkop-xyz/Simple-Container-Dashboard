@@ -308,6 +308,17 @@ func (d *Demo) Animate(ctx context.Context) {
 			return
 		case <-tick.C:
 		}
+		if i%15 == 7 { // homeassistant keeps falling over, so the crash-loop warning has something to show
+			d.api.Update(func(cs []dockertest.Container) []dockertest.Container {
+				for j := range cs {
+					if cs[j].Labels["com.docker.compose.project"] == "homeassistant" {
+						cs[j].RestartCount++
+						cs[j].Status = "Up 4 seconds"
+					}
+				}
+				return cs
+			})
+		}
 		for _, c := range d.api.Containers() {
 			if c.State != "running" {
 				continue
