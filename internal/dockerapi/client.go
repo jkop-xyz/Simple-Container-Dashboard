@@ -93,3 +93,81 @@ func (c *Client) getJSON(ctx context.Context, path string, v any) error {
 	}
 	return nil
 }
+
+// Details are the per-container fields only inspect provides.
+type Details struct {
+	RestartCount int
+	// Health is "healthy", "unhealthy", "starting", or "" when there's no healthcheck.
+	Health string
+}
+
+// Inspect returns a container's restart count and health.
+func (c *Client) Inspect(ctx context.Context, id string) (Details, error) {
+	var wire struct {
+		RestartCount int `json:"RestartCount"`
+		State        struct {
+			Health *struct {
+				Status string `json:"Status"`
+			} `json:"Health"`
+		} `json:"State"`
+	}
+	if err := c.getJSON(ctx, "/containers/"+id+"/json", &wire); err != nil {
+		return Details{}, err
+	}
+	d := Details{RestartCount: wire.RestartCount}
+	if wire.State.Health != nil {
+		d.Health = wire.State.Health.Status
+	}
+	return d, nil
+}
+
+// Sample is one resource-usage reading of a container.
+type Sample struct {
+	// CPUTotal and SystemCPU are cumulative CPU times in nanoseconds; CPU % comes from the
+	// difference between two samples.
+	CPUTotal, SystemCPU uint64
+	// PreCPUTotal and PreSystemCPU are the runtime's own previous reading, if it gave one.
+	PreCPUTotal, PreSystemCPU uint64
+	OnlineCPUs                uint32
+	// Memory is usage minus reclaimable page cache, in bytes.
+	Memory uint64
+}
+
+// Stats returns one resource-usage sample without waiting for a second reading.
+func (c *Client) Stats(ctx context.Context, id string) (Sample, error) {
+	type cpu struct {
+		Usage struct {
+			Total  uint64   `json:"total_usage"`
+			PerCPU []uint64 `json:"percpu_usage"`
+		} `json:"cpu_usage"`
+		System uint64 `json:"system_cpu_usage"`
+		Online uint32 `json:"online_cpus"`
+	}
+	var wire struct {
+		CPU    cpu `json:"cpu_stats"`
+		PreCPU cpu `json:"precpu_stats"`
+		Memory struct {
+			Usage uint64            `json:"usage"`
+			Stats map[string]uint64 `json:"stats"`
+		} `json:"memory_stats"`
+	}
+	if err := c.getJSON(ctx, "/containers/"+id+"/stats?stream=false&one-shot=true", &wire); err != nil {
+		return Sample{}, err
+	}
+	s := Sample{
+		CPUTotal: wire.CPU.Usage.Total, SystemCPU: wire.CPU.System,
+		PreCPUTotal: wire.PreCPU.Usage.Total, PreSystemCPU: wire.PreCPU.System,
+		OnlineCPUs: wire.CPU.Online,
+	}
+	if s.OnlineCPUs == 0 {
+		s.OnlineCPUs = uint32(len(wire.CPU.Usage.PerCPU))
+	}
+	cache := wire.Memory.Stats["inactive_file"] // cgroup v2
+	if cache == 0 {
+		cache = wire.Memory.Stats["total_inactive_file"] // cgroup v1
+	}
+	if cache <= wire.Memory.Usage {
+		s.Memory = wire.Memory.Usage - cache
+	}
+	return s, nil
+}

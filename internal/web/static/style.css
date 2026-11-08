@@ -83,3 +83,7 @@ a { color: inherit; }
 .history-entry { margin-top: 20px; }
 .history-entry h2 { font-size: 15px; margin: 0; display: flex; gap: 10px; align-items: baseline; }
 .history-error { display: inline; white-space: pre-wrap; font-size: 12px; }
+.num { font-variant-numeric: tabular-nums; text-align: right; }
+.health-healthy { color: var(--ok); }
+.health-unhealthy { color: var(--bad); font-weight: 600; }
+.health-starting { color: var(--muted); }
