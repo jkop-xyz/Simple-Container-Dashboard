@@ -51,10 +51,11 @@ func (e *syncEnv) follow() string {
 	return out.String()
 }
 
+// composeLines lists the docker commands that change the host (validation excluded).
 func (e *syncEnv) composeLines() []string {
 	var out []string
 	for _, l := range e.rec.Lines() {
-		if strings.HasPrefix(l, "docker ") {
+		if strings.HasPrefix(l, "docker ") && !strings.HasSuffix(l, " config --quiet") {
 			out = append(out, l)
 		}
 	}

@@ -236,3 +236,9 @@ func (r *Repo) FastForward(ctx context.Context, rev string) error {
 	}
 	return nil
 }
+
+// Show returns the content of path at rev.
+func (r *Repo) Show(ctx context.Context, rev, path string) ([]byte, error) {
+	out, err := r.git(ctx, "show", rev+":"+path)
+	return []byte(out), err
+}

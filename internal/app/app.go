@@ -75,11 +75,15 @@ func New(opts Options) (*App, error) {
 		return nil, err
 	}
 
+	if rt == "" {
+		rt = config.Docker // a socket given without a runtime is taken to be Docker
+	}
 	a := &App{Runtime: rt, Socket: socket}
 	deps := web.Deps{
-		Runtime:  dockerapi.New(socket),
-		Hostname: opts.Hostname,
-		State:    state.Open(filepath.Join(opts.DataDir, "state.json")),
+		Runtime:     dockerapi.New(socket),
+		RuntimeKind: rt,
+		Hostname:    opts.Hostname,
+		State:       state.Open(filepath.Join(opts.DataDir, "state.json")),
 	}
 	if rc := opts.Config.Repo; rc.URL != "" {
 		a.repo = &repo.Repo{Runner: opts.Runner, URL: rc.URL, Branch: rc.Branch, Path: rc.Path}
@@ -91,7 +95,7 @@ func New(opts Options) (*App, error) {
 		if rt == config.Docker {
 			deployers[stacks.Compose] = deploy.Compose{Runner: opts.Runner, RepoPath: rc.Path}
 		}
-		deps.Engine = &engine.Engine{Repo: a.repo, State: deps.State, Deployers: deployers}
+		deps.Engine = &engine.Engine{Repo: a.repo, State: deps.State, Deployers: deployers, Runtime: rt}
 	}
 	a.Handler = web.New(deps)
 	return a, nil

@@ -21,6 +21,8 @@ const (
 	Teardown    Action = "teardown"
 	Unchanged   Action = "unchanged"
 	NotSelected Action = "not selected"
+	// Invalid Stacks are skipped: not deployed, and if already deployed, left as they are.
+	Invalid Action = "invalid"
 )
 
 // Changes reports whether the action changes the host.
@@ -34,6 +36,8 @@ type Entry struct {
 	Reason string
 	// Tree is the Stack's tree id at the planned commit (empty for teardowns).
 	Tree string
+	// Warning is a non-fatal note about the Stack.
+	Warning string
 }
 
 // Plan is a Sync Plan bound to one commit and one selection.
@@ -80,8 +84,12 @@ func Entries(in Input) []Entry {
 		tree := in.Trees[s.Name]
 		dep, deployed := in.Deployed[s.Name]
 		selected := slices.Contains(in.Selected, s.Name)
-		e := Entry{Stack: s.Name, Kind: s.Kind, Tree: tree}
+		e := Entry{Stack: s.Name, Kind: s.Kind, Tree: tree, Warning: s.Warning}
 		switch {
+		case s.Invalid() && deployed:
+			e.Action, e.Reason = Invalid, s.Problem+"; the deployed Stack is left as it is"
+		case s.Invalid():
+			e.Action, e.Reason = Invalid, s.Problem
 		case selected && !deployed:
 			e.Action, e.Reason = Deploy, "selected and not deployed yet"
 		case selected && dep.Failed:
@@ -117,6 +125,13 @@ func rank(a Action) int {
 		return 0
 	case Teardown:
 		return 1
+	case Invalid:
+		return 2
 	}
-	return 2
+	return 3
+}
+
+// Invalidate turns a planned deploy or redeploy into an Invalid entry.
+func (e *Entry) Invalidate(problem string) {
+	e.Action, e.Reason = Invalid, problem
 }

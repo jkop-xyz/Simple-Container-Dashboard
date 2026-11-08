@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/config"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/deploy"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/plan"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/repo"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/stacks"
@@ -22,6 +24,8 @@ type Engine struct {
 	Repo      *repo.Repo
 	State     *state.Store
 	Deployers Deployers
+	// Runtime is the host's runtime; Stacks of the other kind are Invalid.
+	Runtime config.Runtime
 
 	mu       sync.Mutex
 	inflight *call
@@ -146,16 +150,52 @@ func (e *Engine) sync(ctx context.Context) (*plan.Plan, error) {
 	if err != nil {
 		return nil, err
 	}
+	ss := stacks.Discover(files, e.Runtime)
+	entries := plan.Entries(plan.Input{
+		Stacks:   ss,
+		Trees:    trees,
+		Selected: st.Selected,
+		Deployed: st.Deployed,
+	})
+	if err := e.validate(ctx, remote, ss, entries); err != nil {
+		return nil, err
+	}
 	return &plan.Plan{
-		From:    head,
-		To:      remote,
-		Commits: commits,
-		Entries: plan.Entries(plan.Input{
-			Stacks:   stacks.Discover(files),
-			Trees:    trees,
-			Selected: st.Selected,
-			Deployed: st.Deployed,
-		}),
+		From:      head,
+		To:        remote,
+		Commits:   commits,
+		Entries:   plan.Entries(plan.Input{Stacks: ss, Trees: trees, Selected: st.Selected, Deployed: st.Deployed}),
 		Selection: plan.SelectionKey(st.Selected),
 	}, nil
+}
+
+// validate runs each kind's validator on the Stacks planned for deploy or redeploy, and
+// marks the ones that fail Invalid (in ss, so a re-plan sees it).
+func (e *Engine) validate(ctx context.Context, rev string, ss []stacks.Stack, entries []plan.Entry) error {
+	byName := map[string]*stacks.Stack{}
+	for i := range ss {
+		byName[ss[i].Name] = &ss[i]
+	}
+	for _, entry := range entries {
+		if entry.Action != plan.Deploy && entry.Action != plan.Redeploy {
+			continue
+		}
+		v, ok := e.Deployers[entry.Kind].(deploy.Validator)
+		if !ok {
+			continue
+		}
+		s := byName[entry.Stack]
+		files := map[string][]byte{}
+		for _, f := range s.Files {
+			b, err := e.Repo.Show(ctx, rev, s.Path(f))
+			if err != nil {
+				return err
+			}
+			files[f] = b
+		}
+		if err := v.Validate(ctx, *s, files); err != nil {
+			s.Problem = err.Error()
+		}
+	}
+	return nil
 }

@@ -197,7 +197,8 @@ func TestSyncChangesNothingOnTheHost(t *testing.T) {
 		t.Error("Sync updated the working tree")
 	}
 	for _, line := range e.rec.Lines() {
-		if !strings.HasPrefix(line, "git ") {
+		readOnlyValidation := strings.HasPrefix(line, "docker compose ") && strings.HasSuffix(line, " --file - config --quiet")
+		if !strings.HasPrefix(line, "git ") && !readOnlyValidation {
 			t.Errorf("Sync ran %q", line)
 		}
 		for _, verb := range []string{" pull", " merge ", " reset", " checkout", " stash"} {

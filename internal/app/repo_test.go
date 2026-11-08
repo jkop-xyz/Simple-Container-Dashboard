@@ -98,9 +98,11 @@ func TestHiddenDirsAndRootFilesAreNotStacks(t *testing.T) {
 
 	_, body := h.get("/")
 	sections := splitSections(body)
-	if len(sections) != 1 || sections["real"] == "" {
-		t.Errorf("want only Stack %q, got sections %v", "real", keys(sections))
+	if len(sections) != 2 || sections["real"] == "" {
+		t.Errorf("want Stacks real and notes, got sections %v", keys(sections))
 	}
+	// A directory without a definition is an Invalid Stack, not silently ignored.
+	assertContains(t, sections["notes"], "invalid", "has no compose.yaml and no Quadlet files")
 }
 
 func TestHeaderShowsDeploymentRepo(t *testing.T) {

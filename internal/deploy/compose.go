@@ -3,13 +3,25 @@
 package deploy
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/stacks"
 )
+
+// Validator checks a Stack's definition at a commit before it is planned for deploy.
+type Validator interface {
+	// Validate checks the Stack using its files' content at the planned commit (keyed by
+	// path relative to the Stack's directory). It must not write anything.
+	Validate(ctx context.Context, s stacks.Stack, files map[string][]byte) error
+}
 
 // Deployer deploys and tears down Stacks of one kind.
 type Deployer interface {
@@ -45,5 +57,24 @@ func (c Compose) Teardown(ctx context.Context, s stacks.Stack, out io.Writer) er
 
 func (c Compose) compose(ctx context.Context, out io.Writer, args ...string) error {
 	_, err := c.Runner.Run(ctx, runner.Cmd{Name: "docker", Args: append([]string{"compose"}, args...), Output: out})
+	return err
+}
+
+// Validate runs `compose config --quiet` on the compose.yaml at the planned commit, fed
+// on stdin so nothing is written to the clone.
+func (c Compose) Validate(ctx context.Context, s stacks.Stack, files map[string][]byte) error {
+	dir := filepath.Join(c.RepoPath, s.Name)
+	if _, err := os.Stat(dir); err != nil {
+		dir = c.RepoPath // a new Stack's directory only appears with the Apply
+	}
+	_, err := c.Runner.Run(ctx, runner.Cmd{
+		Name:  "docker",
+		Args:  []string{"compose", "--project-name", s.ProjectName(), "--project-directory", dir, "--file", "-", "config", "--quiet"},
+		Stdin: bytes.NewReader(files[stacks.ComposeFile]),
+	})
+	var exit *runner.ExitError
+	if errors.As(err, &exit) {
+		return fmt.Errorf("compose config failed: %s", strings.TrimSpace(string(exit.Result.Output)))
+	}
 	return err
 }
