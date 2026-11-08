@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/config"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/deploy"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/dockerapi"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/engine"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/repo"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/stacks"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/state"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/web"
 )
@@ -85,7 +87,11 @@ func New(opts Options) (*App, error) {
 		deps.Repo = a.repo
 		deps.RepoName = repo.DisplayName(rc.URL)
 		deps.RepoError = a.cloner.check
-		deps.Engine = &engine.Engine{Repo: a.repo, State: deps.State}
+		deployers := engine.Deployers{}
+		if rt == config.Docker {
+			deployers[stacks.Compose] = deploy.Compose{Runner: opts.Runner, RepoPath: rc.Path}
+		}
+		deps.Engine = &engine.Engine{Repo: a.repo, State: deps.State, Deployers: deployers}
 	}
 	a.Handler = web.New(deps)
 	return a, nil

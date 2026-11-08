@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/dockerapi"
@@ -74,6 +75,8 @@ func New(deps Deps) *Server {
 	s.mux.HandleFunc("GET /{$}", s.index)
 	s.mux.HandleFunc("POST /stacks/{name}/selection", s.setSelection)
 	s.mux.HandleFunc("POST /sync", s.sync)
+	s.mux.HandleFunc("POST /apply", s.apply)
+	s.mux.HandleFunc("GET /apply/stream", s.applyStream)
 	return s
 }
 
@@ -195,4 +198,49 @@ func (s *Server) sync(w http.ResponseWriter, r *http.Request) {
 	// The outcome is kept by the engine and rendered on the dashboard.
 	_, _ = s.deps.Engine.Sync(r.Context())
 	http.Redirect(w, r, "/#sync", http.StatusSeeOther)
+}
+
+// apply starts (or joins) an Apply of the current Sync Plan. Rejections are kept by the
+// engine and shown on the dashboard.
+func (s *Server) apply(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Engine == nil {
+		http.Error(w, "no Deployment Repo configured", http.StatusNotFound)
+		return
+	}
+	if _, err := s.deps.Engine.Apply(); err != nil {
+		slog.Warn("Apply rejected", "err", err)
+	}
+	http.Redirect(w, r, "/#apply", http.StatusSeeOther)
+}
+
+// applyStream streams the running (or latest) Apply's output as Server-Sent Events,
+// starting after the first `from` lines, and ends with a "done" event.
+func (s *Server) applyStream(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Engine == nil {
+		http.Error(w, "no Deployment Repo configured", http.StatusNotFound)
+		return
+	}
+	run := s.deps.Engine.LastApply()
+	if run == nil {
+		http.Error(w, "no Apply has run", http.StatusNotFound)
+		return
+	}
+	offset, _ := strconv.Atoi(r.URL.Query().Get("from"))
+	sse(w, r, func(send func(event, data string) error) error {
+		for {
+			lines, done, err := run.Output.Next(r.Context(), offset)
+			if err != nil {
+				return err
+			}
+			if done {
+				return send("done", "")
+			}
+			for _, l := range lines {
+				if err := send("", l); err != nil {
+					return err
+				}
+			}
+			offset += len(lines)
+		}
+	})
 }

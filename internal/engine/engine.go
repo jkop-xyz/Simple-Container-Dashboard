@@ -1,5 +1,5 @@
-// Package engine runs Sync (fetch, check, plan) and, later, Apply. Only one operation
-// runs at a time; a request that arrives while one is running joins it.
+// Package engine runs Sync (fetch, check, plan) and Apply (carry out the plan). Only one
+// operation runs at a time; a request for the operation already running joins it.
 package engine
 
 import (
@@ -19,13 +19,16 @@ const syncTimeout = 5 * time.Minute
 
 // Engine owns the current Sync Plan.
 type Engine struct {
-	Repo  *repo.Repo
-	State *state.Store
+	Repo      *repo.Repo
+	State     *state.Store
+	Deployers Deployers
 
 	mu       sync.Mutex
 	inflight *call
 	plan     *plan.Plan
 	lastErr  error
+	apply    *ApplyRun
+	applyErr error
 }
 
 type call struct {
@@ -34,9 +37,9 @@ type call struct {
 	err  error
 }
 
-// Status is what the dashboard shows about Sync.
+// Status is what the dashboard shows about Sync and Apply.
 type Status struct {
-	// Plan is the latest Sync Plan, or nil.
+	// Plan is the latest unapplied Sync Plan, or nil.
 	Plan *plan.Plan
 	// Stale is set when the selection changed after the plan was computed.
 	Stale bool
@@ -44,17 +47,25 @@ type Status struct {
 	Err error
 	// Running is set while a Sync is in progress.
 	Running bool
+	// CanApply is set when Apply would start: a fresh plan with changes, nothing running.
+	CanApply bool
+	// ApplyErr is why the latest Apply request was rejected, or nil.
+	ApplyErr error
+	// Apply is the running or most recent Apply, or nil.
+	Apply *ApplyRun
 }
 
-// Status reports the current Sync state.
+// Status reports the current Sync and Apply state.
 func (e *Engine) Status() Status {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	s := Status{Plan: e.plan, Err: e.lastErr, Running: e.inflight != nil}
+	s := Status{Plan: e.plan, Err: e.lastErr, Running: e.inflight != nil, ApplyErr: e.applyErr, Apply: e.apply}
 	if e.plan != nil {
 		if st, err := e.State.Get(); err == nil {
 			s.Stale = plan.SelectionKey(st.Selected) != e.plan.Selection
 		}
+		applying := e.apply != nil && e.apply.Running()
+		s.CanApply = !s.Stale && !s.Running && !applying && e.plan.HasChanges()
 	}
 	return s
 }
@@ -63,6 +74,11 @@ func (e *Engine) Status() Status {
 // host except the clone's remote-tracking refs. Concurrent calls share one run.
 func (e *Engine) Sync(ctx context.Context) (*plan.Plan, error) {
 	e.mu.Lock()
+	if e.apply != nil && e.apply.Running() {
+		e.lastErr = ErrApplyRunning
+		e.mu.Unlock()
+		return nil, ErrApplyRunning
+	}
 	c := e.inflight
 	if c == nil {
 		c = &call{done: make(chan struct{})}
@@ -92,6 +108,7 @@ func (e *Engine) runSync(c *call) {
 	e.mu.Lock()
 	e.inflight = nil
 	e.lastErr = c.err
+	e.applyErr = nil
 	if c.err == nil {
 		e.plan = c.plan
 	} else {

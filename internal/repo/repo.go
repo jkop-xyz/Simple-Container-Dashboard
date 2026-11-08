@@ -227,3 +227,12 @@ func (r *Repo) Trees(ctx context.Context, rev string) (map[string]string, error)
 	}
 	return trees, nil
 }
+
+// FastForward moves the clone to rev. It only ever fast-forwards: it fails rather than
+// merge, reset or overwrite anything.
+func (r *Repo) FastForward(ctx context.Context, rev string) error {
+	if _, err := r.git(ctx, "merge", "--ff-only", "--quiet", rev); err != nil {
+		return fmt.Errorf("fast-forwarding the clone: %w", err)
+	}
+	return nil
+}

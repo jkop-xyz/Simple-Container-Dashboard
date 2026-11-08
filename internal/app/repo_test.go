@@ -11,12 +11,19 @@ import (
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/dockerapi/dockertest"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/gittest"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner/runnertest"
 )
+
+// gitOnly records every command, really runs only git, and answers everything else
+// (docker, systemctl, ...) with an unscripted success, so tests never touch the host.
+func gitOnly() *runnertest.Fake {
+	return &runnertest.Fake{Delegate: runner.Exec{}, DelegateOnly: []string{"git"}}
+}
 
 // withRepo configures a Deployment Repo cloned with real git into a temp dir.
 func withRepo(url, path string) func(*app.Options) {
 	return func(o *app.Options) {
-		o.Runner = runner.Exec{}
+		o.Runner = gitOnly()
 		o.Config.Repo = config.Repo{URL: url, Branch: "main", Path: path}
 	}
 }

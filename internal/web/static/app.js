@@ -7,3 +7,15 @@ document.addEventListener("change", (e) => {
   const box = e.target.closest(".select input[type=checkbox]");
   if (box) box.form.submit();
 });
+
+// Follow a running Apply's output live, then reload to show the results.
+const applyOutput = document.querySelector(".apply-output[data-stream]");
+if (applyOutput) {
+  const already = applyOutput.textContent.split("\n").filter((l, i, a) => i < a.length - 1).length;
+  const es = new EventSource(`${applyOutput.dataset.stream}?from=${already}`);
+  es.onmessage = (e) => {
+    applyOutput.textContent += e.data + "\n";
+    applyOutput.scrollTop = applyOutput.scrollHeight;
+  };
+  es.addEventListener("done", () => { es.close(); location.reload(); });
+}

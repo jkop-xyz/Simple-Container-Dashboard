@@ -11,7 +11,6 @@ import (
 
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/app"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/gittest"
-	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner/runnertest"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/stacks"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/state"
@@ -30,7 +29,7 @@ func newSyncEnv(t *testing.T, initial map[string]string) *syncEnv {
 	t.Helper()
 	remote := gittest.NewRemote(t)
 	remote.Commit("initial", initial)
-	rec := &runnertest.Fake{Delegate: runner.Exec{}}
+	rec := gitOnly()
 	clone := filepath.Join(t.TempDir(), "repo")
 	dataDir := t.TempDir()
 	h := startDashboard(t, withRepo(remote.URL, clone), func(o *app.Options) {
