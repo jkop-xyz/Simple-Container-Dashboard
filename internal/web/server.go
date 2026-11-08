@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -22,6 +23,7 @@ import (
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/engine"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/stacks"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/state"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/systemd"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/usage"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/view"
 )
@@ -73,6 +75,16 @@ type Runtime interface {
 	Logs(ctx context.Context, id string, tail int, follow, tty bool, fn func(line string) error) error
 }
 
+// Units reads systemd units; only set on Podman hosts.
+type Units interface {
+	States(ctx context.Context, units []string) (map[string]systemd.UnitState, error)
+	IsActive(ctx context.Context, unit string) string
+	Journal(ctx context.Context, unit string, tail int, follow bool, out io.Writer) error
+}
+
+// AutoUpdateTimer is Podman's image auto-update timer, shown in the header.
+const AutoUpdateTimer = "podman-auto-update.timer"
+
 // LogTail is how many lines a logs view starts with.
 const LogTail = 500
 
@@ -98,6 +110,8 @@ type Deps struct {
 	State     *state.Store
 	// Engine runs Sync. Nil when no Deployment Repo is configured.
 	Engine *engine.Engine
+	// Units is set on Podman hosts, for Quadlet unit states and logs.
+	Units Units
 }
 
 // Server is the dashboard HTTP handler.
@@ -121,6 +135,8 @@ func New(deps Deps) *Server {
 	s.mux.HandleFunc("GET /api/status", s.status)
 	s.mux.HandleFunc("GET /containers/{id}/logs", s.logsPage)
 	s.mux.HandleFunc("GET /containers/{id}/logs/stream", s.logsStream)
+	s.mux.HandleFunc("GET /units/{unit}/logs", s.unitLogsPage)
+	s.mux.HandleFunc("GET /units/{unit}/logs/stream", s.unitLogsStream)
 	return s
 }
 
@@ -140,6 +156,8 @@ type indexData struct {
 	Sync *engine.Status
 	// LastApply is the most recent finished Apply, if any.
 	LastApply *state.ApplyRecord
+	// AutoUpdate is the auto-update timer's state on Podman hosts ("" elsewhere).
+	AutoUpdate string
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
@@ -171,6 +189,10 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusInternalServerError
 	}
 	data.Dashboard = view.Build(cs, ss, st.IsSelected)
+	if s.deps.Units != nil {
+		s.addUnits(ctx, &data.Dashboard)
+		data.AutoUpdate = s.deps.Units.IsActive(ctx, AutoUpdateTimer)
+	}
 	if len(st.History) > 0 {
 		data.LastApply = &st.History[0]
 	}
@@ -486,4 +508,113 @@ func (s *Server) logsStream(w http.ResponseWriter, r *http.Request) {
 		}
 		return send("done", "")
 	})
+}
+
+// addUnits fills in each Quadlet Stack's systemd units and their states.
+func (s *Server) addUnits(ctx context.Context, d *view.Dashboard) {
+	var all []string
+	for _, g := range d.Groups {
+		if g.Stack.Kind == stacks.Quadlet {
+			all = append(all, g.Stack.Services()...)
+		}
+	}
+	states, err := s.deps.Units.States(ctx, all)
+	if err != nil {
+		slog.Error("reading unit states", "err", err)
+	}
+	for i, g := range d.Groups {
+		if g.Stack.Kind != stacks.Quadlet {
+			continue
+		}
+		for _, svc := range g.Stack.Services() {
+			st, ok := states[svc]
+			if !ok {
+				st = systemd.UnitState{Name: svc, ActiveState: "unknown"}
+			}
+			d.Groups[i].Units = append(d.Groups[i].Units, st)
+		}
+	}
+}
+
+// knownUnit reports whether unit belongs to a Quadlet Stack, so the unit-log views only
+// ever read scd's own units.
+func (s *Server) knownUnit(ctx context.Context, unit string) bool {
+	if s.deps.Units == nil || s.deps.Repo == nil {
+		return false
+	}
+	ss, _, err := s.discover(ctx)
+	if err != nil {
+		return false
+	}
+	for _, st := range ss {
+		if st.Kind == stacks.Quadlet && slices.Contains(st.Services(), unit) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) unitLogsPage(w http.ResponseWriter, r *http.Request) {
+	unit := r.PathValue("unit")
+	if !s.knownUnit(r.Context(), unit) {
+		http.Error(w, "no Quadlet unit named "+unit, http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	data := struct {
+		Hostname, Unit string
+		Tail           int
+	}{s.deps.Hostname, unit, LogTail}
+	if err := pages.ExecuteTemplate(w, "unitlogs.html", data); err != nil {
+		slog.Error("rendering unit logs page", "err", err)
+	}
+}
+
+// unitLogsStream streams a Quadlet unit's journal (last LogTail lines, then live) as
+// Server-Sent Events.
+func (s *Server) unitLogsStream(w http.ResponseWriter, r *http.Request) {
+	unit := r.PathValue("unit")
+	if !s.knownUnit(r.Context(), unit) {
+		http.Error(w, "no Quadlet unit named "+unit, http.StatusNotFound)
+		return
+	}
+	sse(w, r, func(send func(event, data string) error) error {
+		lw := &lineWriter{send: func(line string) error { return send("", line) }}
+		err := s.deps.Units.Journal(r.Context(), unit, LogTail, true, lw)
+		lw.Flush()
+		if err != nil && r.Context().Err() == nil {
+			send("error", err.Error())
+		}
+		return send("done", "")
+	})
+}
+
+// lineWriter turns written output into one send per complete line.
+type lineWriter struct {
+	mu      sync.Mutex
+	send    func(string) error
+	partial string
+}
+
+func (l *lineWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	parts := strings.Split(l.partial+string(p), "\n")
+	l.partial = parts[len(parts)-1]
+	for _, line := range parts[:len(parts)-1] {
+		if err := l.send(strings.TrimRight(line, "\r")); err != nil {
+			return 0, err
+		}
+	}
+	return len(p), nil
+}
+
+// Flush sends any final unterminated line.
+func (l *lineWriter) Flush() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.partial != "" {
+		l.send(l.partial)
+		l.partial = ""
+	}
 }

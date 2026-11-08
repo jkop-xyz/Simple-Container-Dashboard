@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Unit}} log · {{.Hostname}}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="logs-page">
+<header>
+  <h1><a href="/">scd</a></h1>
+  <span class="meta">host: <b class="hostname">{{.Hostname}}</b></span>
+  <span class="meta">unit log: <b class="unit-name">{{.Unit}}</b></span>
+  <span class="actions">
+    <button type="button" class="log-pause" aria-pressed="false">Pause</button>
+  </span>
+</header>
+<main>
+  <p><a href="/">← back to the dashboard</a> · last {{.Tail}} journal lines, then live <span class="log-status meta"></span></p>
+  <pre class="log" data-stream="/units/{{.Unit}}/logs/stream" aria-live="off"></pre>
+  <noscript><p class="error">The log view needs JavaScript.</p></noscript>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

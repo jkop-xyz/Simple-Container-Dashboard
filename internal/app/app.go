@@ -19,6 +19,7 @@ import (
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/stacks"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/state"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/systemd"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/web"
 )
 
@@ -96,6 +97,9 @@ func New(opts Options) (*App, error) {
 			deployers[stacks.Compose] = deploy.Compose{Runner: opts.Runner, RepoPath: rc.Path}
 		}
 		deps.Engine = &engine.Engine{Repo: a.repo, State: deps.State, Deployers: deployers, Runtime: rt}
+	}
+	if rt == config.Podman {
+		deps.Units = systemd.User{Runner: opts.Runner}
 	}
 	a.Handler = web.New(deps)
 	return a, nil
