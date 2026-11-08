@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -40,6 +41,8 @@ type Env struct {
 	Binary string
 	// TempDir holds downloaded install scripts.
 	TempDir string
+	// User is the login name scd will run as.
+	User string
 }
 
 // Distro is the host's package-manager family.
@@ -85,6 +88,8 @@ type state struct {
 	runtime config.Runtime
 	distro  Distro
 	repo    config.Repo
+	// relogin is set when the user was added to a group and must log in again.
+	relogin bool
 }
 
 // Run runs the whole setup flow.
@@ -107,7 +112,79 @@ func Run(ctx context.Context, env Env) error {
 	if err := s.writeUnit(env); err != nil {
 		return err
 	}
+	if err := s.prepareRuntime(ctx, env); err != nil {
+		return err
+	}
+	if err := openFirewall(ctx, env); err != nil {
+		return err
+	}
 	s.nextSteps(env)
+	return nil
+}
+
+// prepareRuntime gives the user access to the runtime and keeps it running.
+func (s *state) prepareRuntime(ctx context.Context, env Env) error {
+	env.say("\nPreparing %s for user %s:", s.runtime, env.User)
+	switch s.runtime {
+	case config.Docker:
+		res, _ := env.Runner.Run(ctx, runner.Cmd{Name: "id", Args: []string{"-nG", env.User}})
+		if slices.Contains(strings.Fields(string(res.Output)), "docker") {
+			env.say("%s is already in the docker group.", env.User)
+		} else {
+			if err := env.run(ctx, "sudo", "usermod", "--append", "--groups", "docker", env.User); err != nil {
+				return err
+			}
+			s.relogin = true
+		}
+		return env.run(ctx, "sudo", "systemctl", "enable", "--now", "docker.service")
+	case config.Podman:
+		for _, args := range [][]string{
+			{"systemctl", "--user", "enable", "--now", "podman.socket"},
+			{"systemctl", "--user", "enable", "--now", "podman-auto-update.timer"},
+			{"loginctl", "enable-linger", env.User},
+		} {
+			if err := env.run(ctx, args...); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// DashboardPort is the port scd listens on by default.
+const DashboardPort = "1234"
+
+// openFirewall offers to open the dashboard port when firewalld or ufw is active. It
+// never touches the ports containers publish.
+func openFirewall(ctx context.Context, env Env) error {
+	var cmds [][]string
+	var name string
+	if res, _ := env.Runner.Run(ctx, runner.Cmd{Name: "systemctl", Args: []string{"is-active", "firewalld"}}); strings.TrimSpace(string(res.Output)) == "active" {
+		name = "firewalld"
+		cmds = [][]string{
+			{"sudo", "firewall-cmd", "--permanent", "--add-port=" + DashboardPort + "/tcp"},
+			{"sudo", "firewall-cmd", "--reload"},
+		}
+	} else if env.has("ufw") {
+		res, _ := env.Runner.Run(ctx, runner.Cmd{Name: "sudo", Args: []string{"ufw", "status"}, Stdin: env.Stdin})
+		if strings.Contains(string(res.Output), "Status: active") {
+			name = "ufw"
+			cmds = [][]string{{"sudo", "ufw", "allow", DashboardPort + "/tcp"}}
+		}
+	}
+	if name == "" {
+		env.say("No active firewall (firewalld or ufw) found; port %s should be reachable.", DashboardPort)
+		return nil
+	}
+	if !env.Prompt.Confirm(fmt.Sprintf("%s is active. Open port %s/tcp for the dashboard?", name, DashboardPort), true) {
+		env.say("Leaving the firewall as it is; open port %s/tcp yourself to reach the dashboard.", DashboardPort)
+		return nil
+	}
+	for _, c := range cmds {
+		if err := env.run(ctx, c...); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -400,6 +477,9 @@ func (s *state) writeUnit(env Env) error {
 // nextSteps prints, but doesn't run, how to start the service.
 func (s *state) nextSteps(env Env) {
 	env.say("\nSetup is done. To start scd:")
+	if s.relogin {
+		env.say("  (first log out and back in, so your new docker group membership takes effect)")
+	}
 	env.say("  systemctl --user daemon-reload")
 	env.say("  systemctl --user enable --now %s", UnitName)
 	env.say("Then open http://<this host>:1234")
