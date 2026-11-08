@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -29,7 +31,9 @@ type answers struct {
 	confirms map[string]bool
 	choices  map[string]int
 	inputs   map[string]string
-	asked    []string
+	// pick chooses, from the picker's items, the first containing this text ("" = URL instead).
+	pick  string
+	asked []string
 }
 
 func (a *answers) find(q string, keys []string) string {
@@ -48,6 +52,15 @@ func (a *answers) Confirm(q string, _ bool) bool {
 }
 func (a *answers) Choose(q string, _ []string) int { return a.choices[a.find(q, keys(a.choices))] }
 func (a *answers) Input(q, _ string) string        { return a.inputs[a.find(q, keys(a.inputs))] }
+func (a *answers) Pick(q string, items []string) int {
+	a.asked = append(a.asked, q)
+	for i, it := range items {
+		if a.pick != "" && strings.Contains(it, a.pick) {
+			return i
+		}
+	}
+	return -1
+}
 
 func keys[V any](m map[string]V) []string {
 	var out []string
@@ -63,6 +76,9 @@ type host struct {
 	installed map[string]bool
 	cmds      []string
 	noCompose bool
+	// loggedOut makes `gh auth status` fail; repos is what `gh repo list` returns.
+	loggedOut bool
+	repos     string
 }
 
 func newHost(tools ...string) *host {
@@ -98,8 +114,36 @@ func (h *host) Run(_ context.Context, c runner.Cmd) (runner.Result, error) {
 		for _, p := range strings.Fields(line)[4:] {
 			h.installed[p] = true
 		}
+	case line == "gh auth status" && h.loggedOut:
+		return runner.Result{ExitCode: 1}, &runner.ExitError{Cmd: c, Result: runner.Result{ExitCode: 1, Output: []byte("You are not logged into any GitHub hosts.")}}
+	case strings.HasPrefix(line, "gh auth login"):
+		h.loggedOut = false
+	case strings.HasPrefix(line, "gh repo list"):
+		repos := h.repos
+		if repos == "" {
+			repos = "[]"
+		}
+		return runner.Result{Output: []byte(repos)}, nil
+	case c.Name == "git":
+		if strings.Contains(line, "://") {
+			return runner.Result{}, errors.New("tests never reach the network: " + line)
+		}
+		h.mu.Unlock()
+		defer h.mu.Lock()
+		return runner.Exec{}.Run(context.Background(), c) // real git, against a local bare repo
 	}
 	return runner.Result{}, nil
+}
+
+// installCmds drops the gh/git steps, leaving the install commands.
+func installCmds(cmds []string) []string {
+	var out []string
+	for _, c := range cmds {
+		if !strings.HasPrefix(c, "gh ") && !strings.HasPrefix(c, "git ") {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 type run struct {
@@ -130,8 +174,34 @@ func runSetup(t *testing.T, osRelease string, h *host, a *answers) run {
 		unitPath: filepath.Join(env.UnitDir, "scd.service"), dataDir: env.DataDir}
 }
 
+// localRepo is a bare git repo standing in for the operator's GitHub repo.
+var localRepo string
+
 func repoAnswer() map[string]string {
-	return map[string]string{"Deployment Repo URL": "https://github.com/op/homelab.git"}
+	return map[string]string{"Deployment Repo URL": localRepo}
+}
+
+func TestMain(m *testing.M) {
+	dir, _ := os.MkdirTemp("", "scd-setup-test-")
+	defer os.RemoveAll(dir)
+	for k, v := range map[string]string{"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0",
+		"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"} {
+		os.Setenv(k, v)
+	}
+	localRepo = filepath.Join(dir, "homelab.git")
+	work := filepath.Join(dir, "work")
+	for _, args := range [][]string{
+		{"init", "--quiet", "--bare", "--initial-branch=main", localRepo},
+		{"clone", "--quiet", localRepo, work},
+		{"-C", work, "checkout", "--quiet", "-B", "main"},
+		{"-C", work, "commit", "--quiet", "--allow-empty", "-m", "init"},
+		{"-C", work, "push", "--quiet", "origin", "main"},
+	} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			panic(fmt.Sprintf("git %v: %v\n%s", args, err, out))
+		}
+	}
+	os.Exit(m.Run())
 }
 
 func assertCmds(t *testing.T, got, want []string) {
@@ -153,7 +223,7 @@ func TestDockerOnUbuntuUsesTheConvenienceScript(t *testing.T) {
 	}
 	script := filepath.Join(filepath.Dir(r.dataDir), "..", "tmp", "get-docker.sh")
 	script = filepath.Clean(script)
-	assertCmds(t, r.cmds, []string{
+	assertCmds(t, installCmds(r.cmds), []string{
 		"curl -fsSL https://get.docker.com -o " + script,
 		"sudo sh " + script,
 		"docker compose version",
@@ -172,7 +242,7 @@ func TestDeclinedDockerScriptRunsNothing(t *testing.T) {
 	if r.err == nil {
 		t.Fatal("want an error when Docker isn't installed")
 	}
-	assertCmds(t, r.cmds, nil)
+	assertCmds(t, installCmds(r.cmds), nil)
 	if _, err := os.Stat(r.configPath); err == nil {
 		t.Error("config written although setup stopped")
 	}
@@ -187,7 +257,7 @@ func TestDockerOnFedoraInstallsMissingPackagesWithDnf(t *testing.T) {
 	if r.err != nil {
 		t.Fatalf("%v\n%s", r.err, r.out)
 	}
-	assertCmds(t, r.cmds, []string{"docker compose version", "sudo dnf install -y git gh", "docker compose version"})
+	assertCmds(t, installCmds(r.cmds), []string{"docker compose version", "sudo dnf install -y git gh", "docker compose version"})
 }
 
 func TestMissingComposePluginInstallsDockerViaTheScript(t *testing.T) {
@@ -212,7 +282,7 @@ func TestPodmanOnDebianUsesApt(t *testing.T) {
 	if r.err != nil {
 		t.Fatalf("%v\n%s", r.err, r.out)
 	}
-	assertCmds(t, r.cmds, []string{"sudo apt-get install -y gh podman"})
+	assertCmds(t, installCmds(r.cmds), []string{"sudo apt-get install -y gh podman"})
 }
 
 func TestPodmanOnRockyUsesDnf(t *testing.T) {
@@ -225,7 +295,7 @@ func TestPodmanOnRockyUsesDnf(t *testing.T) {
 	if r.err != nil {
 		t.Fatalf("%v\n%s", r.err, r.out)
 	}
-	assertCmds(t, r.cmds, []string{"sudo dnf install -y podman"})
+	assertCmds(t, installCmds(r.cmds), []string{"sudo dnf install -y podman"})
 }
 
 func TestUnsupportedDistroOnlyPrintsInstructions(t *testing.T) {
@@ -234,7 +304,7 @@ func TestUnsupportedDistroOnlyPrintsInstructions(t *testing.T) {
 	if r.err == nil {
 		t.Fatal("want an error listing what's missing")
 	}
-	assertCmds(t, r.cmds, []string{"docker compose version"})
+	assertCmds(t, installCmds(r.cmds), []string{"docker compose version"})
 	for _, want := range []string{"dnf- and apt-based", `"cachyos"`, "gh: https://cli.github.com", "run `scd setup` again"} {
 		if !strings.Contains(r.out, want) {
 			t.Errorf("output missing %q:\n%s", want, r.out)
@@ -266,7 +336,7 @@ func TestConfigAndUnitAreWrittenAndNextStepsPrinted(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := config.Config{Listen: ":1234", Runtime: config.Docker,
-		Repo: config.Repo{URL: "https://github.com/op/homelab.git", Path: filepath.Join(r.dataDir, "repo")}}
+		Repo: config.Repo{URL: localRepo, Path: filepath.Join(r.dataDir, "repo")}}
 	if cfg != want {
 		t.Errorf("config %+v\nwant   %+v", cfg, want)
 	}
