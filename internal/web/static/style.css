@@ -42,3 +42,11 @@ th { color: var(--muted); font-weight: 500; }
 .state-exited .name, .state-created .name, .state-dead .name { color: var(--muted); }
 .error { color: var(--bad); border: 1px solid var(--bad); padding: 8px 12px; border-radius: 4px; }
 .empty { color: var(--muted); }
+header { flex-wrap: wrap; }
+.meta { color: var(--muted); }
+.meta b, .meta code { color: var(--fg); font-weight: 600; }
+.stack { margin-top: 24px; }
+.stack h2 { font-size: 15px; margin: 0; }
+.kind { font-weight: 400; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; margin-left: 6px; }
+.stack table { margin-top: 8px; }
+.stack .empty { margin: 6px 0 0; }

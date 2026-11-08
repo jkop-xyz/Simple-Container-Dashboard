@@ -66,6 +66,7 @@ func serve(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	_ = a.Start(ctx) // failures are logged and shown on the dashboard
 
 	srv := &http.Server{Addr: cfg.Listen, Handler: a.Handler, ReadHeaderTimeout: 10 * time.Second}
 	errc := make(chan error, 1)

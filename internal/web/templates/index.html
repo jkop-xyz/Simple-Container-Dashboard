@@ -3,33 +3,51 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>scd</title>
+<title>scd · {{.Hostname}}</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header>
   <h1>scd</h1>
+  <span class="meta">host: <b class="hostname">{{.Hostname}}</b></span>
+  {{if .RepoName}}<span class="meta">repo: <b class="repo">{{.RepoName}}</b>{{if .Commit}} @ <code class="commit" title="{{.Commit}}">{{short .Commit}}</code>{{end}}</span>{{end}}
 </header>
 <main>
   {{if .Error}}<p class="error" role="alert">Can't reach the container runtime: {{.Error}}</p>{{end}}
-  {{if .Containers}}
-  <table class="containers">
-    <thead><tr><th>Container</th><th>State</th><th>Status</th><th>Image</th></tr></thead>
-    <tbody>
-    {{range .Containers}}
-      <tr class="container state-{{.State}}" data-id="{{.ID}}">
-        <td class="name">{{.Name}}</td>
-        <td><span class="state">{{.State}}</span></td>
-        <td class="status">{{.Status}}</td>
-        <td class="image">{{.Image}}</td>
-      </tr>
-    {{end}}
-    </tbody>
-  </table>
-  {{else if not .Error}}
+  {{if .RepoError}}<p class="error" role="alert">Deployment Repo unavailable: {{.RepoError}}</p>{{end}}
+
+  {{range .Groups}}
+  <section class="stack" data-stack="{{.Stack.Name}}">
+    <h2>{{.Stack.Name}} <span class="kind">{{.Stack.Kind}}</span></h2>
+    {{if .Containers}}{{template "containers" .Containers}}{{else}}<p class="empty">No containers.</p>{{end}}
+  </section>
+  {{end}}
+
+  {{if .Other}}
+  <section class="stack other" data-stack="">
+    <h2>Other <span class="kind">unmanaged</span></h2>
+    {{template "containers" .Other}}
+  </section>
+  {{else if and (not .Groups) (not .Error)}}
   <p class="empty">No containers on this host.</p>
   {{end}}
 </main>
 <script src="/static/app.js"></script>
 </body>
 </html>
+
+{{define "containers"}}
+<table class="containers">
+  <thead><tr><th>Container</th><th>State</th><th>Status</th><th>Image</th></tr></thead>
+  <tbody>
+  {{range .}}
+    <tr class="container state-{{.State}}" data-id="{{.ID}}">
+      <td class="name">{{.Name}}</td>
+      <td><span class="state">{{.State}}</span></td>
+      <td class="status">{{.Status}}</td>
+      <td class="image">{{.Image}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}

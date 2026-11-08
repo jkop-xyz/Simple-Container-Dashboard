@@ -30,6 +30,18 @@ type Config struct {
 	Runtime Runtime `toml:"runtime"`
 	// Socket overrides the auto-detected runtime socket path.
 	Socket string `toml:"socket"`
+	// Repo is the host's Deployment Repo. Optional: without it the dashboard only lists containers.
+	Repo Repo `toml:"repo"`
+}
+
+// Repo configures the Deployment Repo.
+type Repo struct {
+	// URL is the git remote, e.g. "https://github.com/owner/name.git".
+	URL string `toml:"url"`
+	// Branch to track. Empty means the remote's default branch.
+	Branch string `toml:"branch"`
+	// Path is where the clone lives on the host. Defaults to $XDG_DATA_HOME/scd/repo.
+	Path string `toml:"path"`
 }
 
 // ErrNotFound is returned by Load when the config file doesn't exist.
@@ -43,6 +55,19 @@ func DefaultPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "scd", "config.toml"), nil
+}
+
+// DataDir returns scd's data directory: $XDG_DATA_HOME/scd, falling back to
+// ~/.local/share/scd.
+func DataDir() (string, error) {
+	if d := os.Getenv("XDG_DATA_HOME"); d != "" {
+		return filepath.Join(d, "scd"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".local", "share", "scd"), nil
 }
 
 // Load reads the config file at path and fills in defaults.
@@ -62,6 +87,13 @@ func Load(path string) (Config, error) {
 	case "", Docker, Podman:
 	default:
 		return Config{}, fmt.Errorf("config %s: runtime must be %q or %q, got %q", path, Docker, Podman, cfg.Runtime)
+	}
+	if cfg.Repo.URL != "" && cfg.Repo.Path == "" {
+		dir, err := DataDir()
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Repo.Path = filepath.Join(dir, "repo")
 	}
 	return cfg, nil
 }

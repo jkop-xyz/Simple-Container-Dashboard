@@ -58,3 +58,14 @@ func TestLoadMissingFile(t *testing.T) {
 		t.Fatalf("got %v, want ErrNotFound", err)
 	}
 }
+
+func TestRepoPathDefaultsToDataDir(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", "/data")
+	cfg, err := config.Load(write(t, "[repo]\nurl = \"https://github.com/o/r.git\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Repo.Path != "/data/scd/repo" {
+		t.Errorf("Repo.Path = %q, want /data/scd/repo", cfg.Repo.Path)
+	}
+}
