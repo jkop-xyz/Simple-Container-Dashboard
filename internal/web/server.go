@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/dockerapi"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/engine"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/stacks"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/state"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/view"
@@ -40,6 +41,7 @@ type Runtime interface {
 // Repo is what the web server needs from the Deployment Repo clone.
 type Repo interface {
 	Head(ctx context.Context) (string, error)
+	Latest(ctx context.Context) (string, error)
 	Files(ctx context.Context, rev string) ([]string, error)
 }
 
@@ -54,6 +56,8 @@ type Deps struct {
 	RepoError func() error
 	Hostname  string
 	State     *state.Store
+	// Engine runs Sync. Nil when no Deployment Repo is configured.
+	Engine *engine.Engine
 }
 
 // Server is the dashboard HTTP handler.
@@ -69,6 +73,7 @@ func New(deps Deps) *Server {
 	s.mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
 	s.mux.HandleFunc("GET /{$}", s.index)
 	s.mux.HandleFunc("POST /stacks/{name}/selection", s.setSelection)
+	s.mux.HandleFunc("POST /sync", s.sync)
 	return s
 }
 
@@ -81,6 +86,8 @@ type indexData struct {
 	RepoError string
 	view.Dashboard
 	Error string
+	// Sync is nil when no Deployment Repo is configured.
+	Sync *engine.Status
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
@@ -112,6 +119,10 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusInternalServerError
 	}
 	data.Dashboard = view.Build(cs, ss, st.IsSelected)
+	if s.deps.Engine != nil {
+		status := s.deps.Engine.Status()
+		data.Sync = &status
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
@@ -120,6 +131,9 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// discover returns the Stacks in the clone's checked-out commit plus any new ones in the
+// latest fetched commit, so Stacks that only exist upstream can be selected before an
+// Apply brings them in.
 func (s *Server) discover(ctx context.Context) ([]stacks.Stack, string, error) {
 	if s.deps.RepoError != nil {
 		if err := s.deps.RepoError(); err != nil {
@@ -130,11 +144,19 @@ func (s *Server) discover(ctx context.Context) ([]stacks.Stack, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	files, err := s.deps.Repo.Files(ctx, head)
-	if err != nil {
-		return nil, head, err
+	revs := []string{head}
+	if latest, err := s.deps.Repo.Latest(ctx); err == nil && latest != head {
+		revs = append(revs, latest)
 	}
-	return stacks.Discover(files), head, nil
+	var all []string
+	for _, rev := range revs {
+		files, err := s.deps.Repo.Files(ctx, rev)
+		if err != nil {
+			return nil, head, err
+		}
+		all = append(all, files...)
+	}
+	return stacks.Discover(all), head, nil
 }
 
 // setSelection selects or unselects a Stack. It changes only the selection: nothing is
@@ -161,4 +183,16 @@ func (s *Server) setSelection(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("Stack selection changed", "stack", name, "selected", selected)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// sync runs (or joins) a Sync, then shows the dashboard with the resulting Sync Plan or
+// the reason it was refused.
+func (s *Server) sync(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Engine == nil {
+		http.Error(w, "no Deployment Repo configured", http.StatusNotFound)
+		return
+	}
+	// The outcome is kept by the engine and rendered on the dashboard.
+	_, _ = s.deps.Engine.Sync(r.Context())
+	http.Redirect(w, r, "/#sync", http.StatusSeeOther)
 }

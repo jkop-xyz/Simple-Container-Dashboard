@@ -106,3 +106,124 @@ func DisplayName(url string) string {
 	}
 	return url
 }
+
+// Commit is one commit in a range.
+type Commit struct {
+	Hash    string
+	Subject string
+}
+
+// Refusal is returned when the clone is in a state scd will not touch (local edits,
+// diverged history). The message tells the operator what is wrong.
+type Refusal struct{ Reason string }
+
+func (e *Refusal) Error() string { return e.Reason }
+
+// TrackedBranch is the branch scd follows: the configured one, or the clone's
+// checked-out branch.
+func (r *Repo) TrackedBranch(ctx context.Context) (string, error) {
+	if r.Branch != "" {
+		return r.Branch, nil
+	}
+	out, err := r.git(ctx, "symbolic-ref", "--short", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("clone is not on a branch: %w", err)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// Fetch updates the remote-tracking ref for the tracked branch and returns the commit
+// it points at. The working tree and local branch are not touched.
+func (r *Repo) Fetch(ctx context.Context) (string, error) {
+	branch, err := r.TrackedBranch(ctx)
+	if err != nil {
+		return "", err
+	}
+	if _, err := r.git(ctx, "fetch", "--quiet", "origin", branch); err != nil {
+		return "", fmt.Errorf("fetching Deployment Repo: %w", err)
+	}
+	return r.Latest(ctx)
+}
+
+// Latest returns the most recently fetched remote commit of the tracked branch, without
+// fetching. Before any fetch this is the commit the clone was made from.
+func (r *Repo) Latest(ctx context.Context) (string, error) {
+	branch, err := r.TrackedBranch(ctx)
+	if err != nil {
+		return "", err
+	}
+	out, err := r.git(ctx, "rev-parse", "refs/remotes/origin/"+branch)
+	return strings.TrimSpace(out), err
+}
+
+// CheckClean refuses when the clone has local edits or untracked files (git-ignored
+// files such as secrets.env don't count), or when its history has diverged from the
+// remote commit.
+func (r *Repo) CheckClean(ctx context.Context, remote string) error {
+	out, err := r.git(ctx, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	if err != nil {
+		return err
+	}
+	var dirty []string
+	for _, entry := range strings.Split(out, "\x00") {
+		if len(entry) > 3 {
+			dirty = append(dirty, entry[3:])
+		}
+	}
+	if len(dirty) > 0 {
+		return &Refusal{Reason: fmt.Sprintf("the clone at %s has local changes, so scd won't touch it: %s",
+			r.Path, strings.Join(dirty, ", "))}
+	}
+
+	head, err := r.Head(ctx)
+	if err != nil {
+		return err
+	}
+	if head == remote || r.isAncestor(ctx, head, remote) {
+		return nil
+	}
+	if r.isAncestor(ctx, remote, head) {
+		return &Refusal{Reason: fmt.Sprintf("the clone at %s has commits that aren't on the remote, so scd won't touch it", r.Path)}
+	}
+	return &Refusal{Reason: fmt.Sprintf("the clone at %s has diverged from the remote, so scd won't touch it", r.Path)}
+}
+
+func (r *Repo) isAncestor(ctx context.Context, a, b string) bool {
+	_, err := r.git(ctx, "merge-base", "--is-ancestor", a, b)
+	return err == nil
+}
+
+// Log lists the commits in from..to, newest first.
+func (r *Repo) Log(ctx context.Context, from, to string) ([]Commit, error) {
+	if from == to {
+		return nil, nil
+	}
+	out, err := r.git(ctx, "log", "--format=%H%x00%s%x00", from+".."+to)
+	if err != nil {
+		return nil, err
+	}
+	var commits []Commit
+	fields := strings.Split(out, "\x00")
+	for i := 0; i+1 < len(fields); i += 2 {
+		commits = append(commits, Commit{Hash: strings.TrimSpace(fields[i]), Subject: fields[i+1]})
+	}
+	return commits, nil
+}
+
+// Trees returns the git tree id of every top-level directory at rev. A directory's
+// tree id changes exactly when any file under it changes.
+func (r *Repo) Trees(ctx context.Context, rev string) (map[string]string, error) {
+	out, err := r.git(ctx, "ls-tree", "-z", rev)
+	if err != nil {
+		return nil, err
+	}
+	trees := map[string]string{}
+	for _, line := range strings.Split(out, "\x00") {
+		meta, name, ok := strings.Cut(line, "\t")
+		f := strings.Fields(meta)
+		if ok && len(f) == 3 && f[1] == "tree" {
+			trees[name] = f[2]
+		}
+	}
+	return trees, nil
+}

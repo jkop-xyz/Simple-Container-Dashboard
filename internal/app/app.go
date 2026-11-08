@@ -13,6 +13,7 @@ import (
 
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/config"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/dockerapi"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/engine"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/repo"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/state"
@@ -84,6 +85,7 @@ func New(opts Options) (*App, error) {
 		deps.Repo = a.repo
 		deps.RepoName = repo.DisplayName(rc.URL)
 		deps.RepoError = a.cloner.check
+		deps.Engine = &engine.Engine{Repo: a.repo, State: deps.State}
 	}
 	a.Handler = web.New(deps)
 	return a, nil

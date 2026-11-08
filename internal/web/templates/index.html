@@ -11,10 +11,15 @@
   <h1>scd</h1>
   <span class="meta">host: <b class="hostname">{{.Hostname}}</b></span>
   {{if .RepoName}}<span class="meta">repo: <b class="repo">{{.RepoName}}</b>{{if .Commit}} @ <code class="commit" title="{{.Commit}}">{{short .Commit}}</code>{{end}}</span>{{end}}
+  {{if .Sync}}<span class="actions">
+    <form method="post" action="/sync"><button class="sync-button">Sync</button></form>
+  </span>{{end}}
 </header>
 <main>
   {{if .Error}}<p class="error" role="alert">Can't reach the container runtime: {{.Error}}</p>{{end}}
   {{if .RepoError}}<p class="error" role="alert">Deployment Repo unavailable: {{.RepoError}}</p>{{end}}
+
+  {{with .Sync}}{{template "sync" .}}{{end}}
 
   {{range .Groups}}
   <section class="stack{{if not .Selected}} unselected{{end}}" data-stack="{{.Stack.Name}}">
@@ -58,4 +63,40 @@
   {{end}}
   </tbody>
 </table>
+{{end}}
+
+{{define "sync"}}
+<section id="sync" class="sync">
+  {{if .Err}}<p class="error sync-error" role="alert">Sync failed: {{.Err}}</p>{{end}}
+  {{with .Plan}}
+  <div class="plan">
+    <h2>Sync Plan</h2>
+    {{if $.Stale}}<p class="stale" role="alert">The selection changed after this Sync. Sync again before applying.</p>{{end}}
+    {{if eq .From .To}}
+    <p class="range">Already at <code title="{{.To}}">{{short .To}}</code>.</p>
+    {{else}}
+    <p class="range"><code title="{{.From}}">{{short .From}}</code> → <code title="{{.To}}">{{short .To}}</code></p>
+    <ul class="commits">
+      {{range .Commits}}<li><code title="{{.Hash}}">{{short .Hash}}</code> {{.Subject}}</li>{{end}}
+    </ul>
+    {{end}}
+    {{if .Entries}}
+    <table class="plan-entries">
+      <thead><tr><th>Stack</th><th>Action</th><th>Why</th></tr></thead>
+      <tbody>
+      {{range .Entries}}
+        <tr class="plan-entry" data-stack="{{.Stack}}" data-outcome="{{.Action}}">
+          <td class="name">{{.Stack}}</td>
+          <td><span class="action">{{.Action}}</span></td>
+          <td class="reason">{{.Reason}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p class="empty">The Deployment Repo has no Stacks.</p>
+    {{end}}
+  </div>
+  {{end}}
+</section>
 {{end}}

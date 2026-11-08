@@ -15,6 +15,8 @@ type Response struct {
 	Output   string
 	// Err simulates a process that failed to start (e.g. binary not found).
 	Err error
+	// Wait, if set, blocks the command until the channel is closed.
+	Wait <-chan struct{}
 }
 
 type rule struct {
@@ -55,6 +57,9 @@ func (f *Fake) Run(ctx context.Context, cmd runner.Cmd) (runner.Result, error) {
 	}
 	f.mu.Unlock()
 
+	if resp.Wait != nil {
+		<-resp.Wait
+	}
 	if !matched && f.Delegate != nil {
 		return f.Delegate.Run(ctx, cmd)
 	}

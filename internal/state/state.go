@@ -11,12 +11,26 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/stacks"
 )
 
 // State is the persisted state.
 type State struct {
 	// Selected lists the names of the Selected Stacks.
 	Selected []string `json:"selected"`
+	// Deployed records the Stacks Apply has deployed, keyed by Stack name. Only these
+	// Stacks are ever redeployed or torn down.
+	Deployed map[string]DeployedStack `json:"deployed,omitempty"`
+}
+
+// DeployedStack is what Apply last did for one Stack.
+type DeployedStack struct {
+	Kind stacks.Kind `json:"kind"`
+	// Tree is the git tree id of the Stack's directory at the deployed commit.
+	Tree string `json:"tree"`
+	// Failed marks a Stack whose last deploy failed; it is retried on the next Apply.
+	Failed bool `json:"failed,omitempty"`
 }
 
 // Store reads and writes the state file. Safe for concurrent use.
