@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/config"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/dockerapi"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/engine"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/stacks"
@@ -49,6 +50,8 @@ type Repo interface {
 // Deps are the server's dependencies.
 type Deps struct {
 	Runtime Runtime
+	// RuntimeKind is the host's runtime (docker or podman).
+	RuntimeKind config.Runtime
 	// Repo is nil when no Deployment Repo is configured.
 	Repo Repo
 	// RepoName is the Deployment Repo's display name, e.g. "owner/name".
@@ -159,7 +162,7 @@ func (s *Server) discover(ctx context.Context) ([]stacks.Stack, string, error) {
 		}
 		all = append(all, files...)
 	}
-	return stacks.Discover(all), head, nil
+	return stacks.Discover(all, s.deps.RuntimeKind), head, nil
 }
 
 // setSelection selects or unselects a Stack. It changes only the selection: nothing is

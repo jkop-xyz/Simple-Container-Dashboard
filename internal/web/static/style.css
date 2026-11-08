@@ -72,3 +72,8 @@ button:disabled { opacity: .5; cursor: default; }
 .apply-output { max-height: 320px; overflow: auto; background: var(--line); padding: 8px; border-radius: 4px; font-size: 12px; margin: 8px 0 0; white-space: pre-wrap; }
 .apply-result pre { display: inline; white-space: pre-wrap; }
 .ok { color: var(--ok); }
+.invalid { font-weight: 600; font-size: 12px; color: var(--bad); }
+.problem { color: var(--bad); margin: 4px 0 0; }
+.warning { color: var(--muted); margin: 4px 0 0; font-style: italic; }
+.plan-entry[data-outcome="invalid"] .action { color: var(--bad); font-weight: 600; }
+.plan-entry[data-outcome="invalid"] .reason { white-space: pre-wrap; }
