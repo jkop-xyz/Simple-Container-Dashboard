@@ -17,6 +17,28 @@ type Container struct {
 	dockerapi.Container
 	dockerapi.Details
 	usage.Usage
+	// CrashLooping is set while the container keeps restarting.
+	CrashLooping bool
+}
+
+// NeedsAttention reports whether the container is unhealthy, crash-looping, restarting,
+// dead, or exited with a non-zero code.
+func (c Container) NeedsAttention() bool { return c.problem() != "" }
+
+func (c Container) problem() string {
+	switch {
+	case c.CrashLooping:
+		return "crash-looping"
+	case c.Health == "unhealthy":
+		return "unhealthy"
+	case c.State == "restarting":
+		return "restarting"
+	case c.State == "dead":
+		return "dead"
+	case c.State == "exited" && !strings.HasPrefix(c.Status, "Exited (0)"):
+		return strings.ToLower(strings.SplitN(c.Status, ")", 2)[0] + ")")
+	}
+	return ""
 }
 
 // ComposeProjectLabel is the label Docker Compose (and podman compose) put on containers.
@@ -151,6 +173,17 @@ func (g Group) Unhealthy() int {
 	return n
 }
 
+// CrashLooping counts the group's crash-looping containers.
+func (g Group) CrashLooping() int {
+	n := 0
+	for _, c := range g.Containers {
+		if c.CrashLooping {
+			n++
+		}
+	}
+	return n
+}
+
 // Restarted reports whether any of the group's containers has restarted.
 func (g Group) Restarted() bool {
 	for _, c := range g.Containers {
@@ -190,19 +223,11 @@ func (d Dashboard) Attention() []Problem {
 	var out []Problem
 	check := func(stack string, cs []Container) {
 		for _, c := range cs {
-			p := Problem{Container: c, Stack: stack}
-			switch {
-			case c.Health == "unhealthy":
-				p.Reason, p.Severity = "unhealthy", "bad"
-			case c.State == "restarting":
-				p.Reason, p.Severity = "restarting", "bad"
-			case c.State == "exited" && !strings.HasPrefix(c.Status, "Exited (0)"):
-				p.Reason, p.Severity = strings.ToLower(strings.SplitN(c.Status, ")", 2)[0]+")"), "bad"
-			case c.State == "dead":
-				p.Reason, p.Severity = "dead", "bad"
-			default:
+			reason := c.problem()
+			if reason == "" {
 				continue
 			}
+			p := Problem{Container: c, Stack: stack, Reason: reason, Severity: "bad"}
 			if c.RestartCount > 0 {
 				p.Reason += fmt.Sprintf(" · restarted %d×", c.RestartCount)
 			}
@@ -236,4 +261,53 @@ func (d Dashboard) ActiveGroups() []Group {
 		}
 	}
 	return out
+}
+
+// Filters the dashboard can narrow to.
+var Filters = map[string]string{
+	"attention": "containers that need attention",
+	"stopped":   "containers that aren't running",
+	"selected":  "Stacks selected on this host",
+	"unmanaged": "unmanaged containers",
+}
+
+// Filter narrows the dashboard to one of Filters. Unknown names leave it unchanged.
+func (d Dashboard) Filter(name string) Dashboard {
+	keepRows := func(cs []Container, ok func(Container) bool) []Container {
+		var out []Container
+		for _, c := range cs {
+			if ok(c) {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+	rows := func(ok func(Container) bool) Dashboard {
+		var f Dashboard
+		for _, g := range d.Groups {
+			g.Containers = keepRows(g.Containers, ok)
+			if len(g.Containers) > 0 {
+				f.Groups = append(f.Groups, g)
+			}
+		}
+		f.Other = keepRows(d.Other, ok)
+		return f
+	}
+	switch name {
+	case "attention":
+		return rows(Container.NeedsAttention)
+	case "stopped":
+		return rows(func(c Container) bool { return c.State != "running" })
+	case "selected":
+		var f Dashboard
+		for _, g := range d.Groups {
+			if g.Selected {
+				f.Groups = append(f.Groups, g)
+			}
+		}
+		return f
+	case "unmanaged":
+		return Dashboard{Other: d.Other}
+	}
+	return d
 }
