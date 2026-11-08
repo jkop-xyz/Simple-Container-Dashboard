@@ -100,3 +100,4 @@ a.port:hover { text-decoration: underline; }
 .unit-inactive .unit-state, .unit-unknown .unit-state { color: var(--muted); }
 .timer-active { color: var(--ok); }
 .auto-update b:not(.timer-active) { color: var(--bad); }
+.new-release { color: var(--ok); text-decoration: none; font-weight: 600; }

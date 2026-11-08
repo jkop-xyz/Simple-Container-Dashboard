@@ -200,7 +200,8 @@ func TestSyncChangesNothingOnTheHost(t *testing.T) {
 		t.Error("Sync updated the working tree")
 	}
 	for _, line := range e.rec.Lines() {
-		readOnlyValidation := strings.HasPrefix(line, "docker compose ") && strings.HasSuffix(line, " --file - config --quiet")
+		readOnlyValidation := strings.HasPrefix(line, "docker compose ") && strings.HasSuffix(line, " --file - config --quiet") ||
+			line == "docker compose version"
 		if !strings.HasPrefix(line, "git ") && !readOnlyValidation {
 			t.Errorf("Sync ran %q", line)
 		}

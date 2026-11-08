@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -40,6 +41,9 @@ func startDashboard(t *testing.T, customize ...func(*app.Options)) *harness {
 		Runner:   &runnertest.Fake{},
 		Hostname: "testhost",
 		DataDir:  t.TempDir(),
+		// Every tool is "installed", and the release lookup never reaches the network.
+		LookPath:      func(f string) (string, error) { return "/usr/bin/" + f, nil },
+		LatestRelease: func(context.Context) (string, error) { return "", errors.New("offline in tests") },
 	}
 	for _, c := range customize {
 		c(&opts)

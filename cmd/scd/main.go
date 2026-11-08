@@ -59,7 +59,7 @@ func serve(args []string) error {
 		return err
 	}
 
-	a, err := app.New(app.Options{Config: cfg})
+	a, err := app.New(app.Options{Config: cfg, Version: version})
 	if err != nil {
 		return err
 	}

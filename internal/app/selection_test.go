@@ -108,7 +108,7 @@ func TestChangingSelectionDeploysNothing(t *testing.T) {
 	h.setSelected("jellyfin", false)
 
 	for _, line := range rec.Lines() {
-		if !strings.HasPrefix(line, "git ") {
+		if !strings.HasPrefix(line, "git ") && line != "docker compose version" {
 			t.Errorf("selection change ran %q; only read-only git calls are allowed", line)
 		}
 		for _, verb := range []string{" fetch", " pull", " merge", " reset", " checkout"} {

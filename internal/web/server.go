@@ -112,6 +112,10 @@ type Deps struct {
 	Engine *engine.Engine
 	// Units is set on Podman hosts, for Quadlet unit states and logs.
 	Units Units
+	// Missing lists external tools the host lacks.
+	Missing func() []string
+	// NewerRelease returns a newer scd release tag, or "".
+	NewerRelease func() string
 }
 
 // Server is the dashboard HTTP handler.
@@ -158,13 +162,16 @@ type indexData struct {
 	LastApply *state.ApplyRecord
 	// AutoUpdate is the auto-update timer's state on Podman hosts ("" elsewhere).
 	AutoUpdate string
+	Missing    []string
+	NewRelease string
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	data := indexData{Hostname: s.deps.Hostname, RepoName: s.deps.RepoName, BrowserHost: browserHost(r)}
+	data := indexData{Hostname: s.deps.Hostname, RepoName: s.deps.RepoName, BrowserHost: browserHost(r),
+		Missing: s.missing(), NewRelease: s.newRelease()}
 	status := http.StatusOK
 
 	cs, err := s.containers(ctx)
@@ -401,7 +408,9 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	}
 	out := struct {
 		Containers []statusContainer `json:"containers"`
-	}{Containers: []statusContainer{}}
+		Missing    []string          `json:"missing"`
+		NewRelease string            `json:"newRelease,omitempty"`
+	}{Containers: []statusContainer{}, Missing: s.missing(), NewRelease: s.newRelease()}
 	for _, c := range cs {
 		out.Containers = append(out.Containers, statusContainer{
 			ID: c.ID, Name: c.Name, State: c.State, Status: c.Status,
@@ -617,4 +626,21 @@ func (l *lineWriter) Flush() {
 		l.send(l.partial)
 		l.partial = ""
 	}
+}
+
+func (s *Server) missing() []string {
+	if s.deps.Missing == nil {
+		return []string{}
+	}
+	if m := s.deps.Missing(); m != nil {
+		return m
+	}
+	return []string{}
+}
+
+func (s *Server) newRelease() string {
+	if s.deps.NewerRelease == nil {
+		return ""
+	}
+	return s.deps.NewerRelease()
 }

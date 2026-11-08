@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,6 +17,8 @@ import (
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/deploy"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/dockerapi"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/engine"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/hostcheck"
+	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/release"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/repo"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/runner"
 	"github.com/jkop-xyz/Simple-Container-Dashboard/internal/stacks"
@@ -40,6 +43,12 @@ type Options struct {
 	QuadletDir string
 	// QuadletGenerator is Podman's quadlet generator. Defaults to the first one found.
 	QuadletGenerator string
+	// LookPath finds external tools. Defaults to exec.LookPath.
+	LookPath hostcheck.LookPath
+	// Version is scd's own version, for the new-release hint.
+	Version string
+	// LatestRelease looks up the newest scd release. Defaults to GitHub; tests pass a fake.
+	LatestRelease release.Latest
 }
 
 // App is a wired-up dashboard.
@@ -48,8 +57,12 @@ type App struct {
 	Runtime config.Runtime
 	Socket  string
 
-	repo   *repo.Repo
-	cloner *cloner
+	repo    *repo.Repo
+	cloner  *cloner
+	missing []string
+	runner  runner.Runner
+	look    hostcheck.LookPath
+	mu      sync.Mutex
 }
 
 // HostEnv is the real host environment for socket detection.
@@ -136,13 +149,42 @@ func New(opts Options) (*App, error) {
 	if rt == config.Podman {
 		deps.Units = systemd.User{Runner: opts.Runner}
 	}
+	if opts.LookPath == nil {
+		opts.LookPath = exec.LookPath
+	}
+	a.runner, a.look = opts.Runner, opts.LookPath
+	deps.Missing = a.Missing
+	if opts.LatestRelease == nil {
+		opts.LatestRelease = release.GitHubLatest(opts.Version)
+	}
+	checker := &release.Checker{Current: opts.Version, Latest: opts.LatestRelease}
+	deps.NewerRelease = checker.Newer
 	a.Handler = web.New(deps)
 	return a, nil
 }
 
+// Missing lists the external tools the host lacks, as found by the last Start.
+func (a *App) Missing() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]string(nil), a.missing...)
+}
+
+func (a *App) checkTools(ctx context.Context) {
+	missing := hostcheck.Missing(ctx, a.Runtime, a.look, a.runner)
+	if len(missing) > 0 {
+		slog.Warn("missing tools", "tools", missing)
+	}
+	a.mu.Lock()
+	a.missing = missing
+	a.mu.Unlock()
+}
+
 // Start clones the Deployment Repo if the clone is missing. A failed clone is reported
 // on the dashboard and retried later, so Start only returns an error for logging.
+// It also checks which external tools are missing.
 func (a *App) Start(ctx context.Context) error {
+	a.checkTools(ctx)
 	if a.cloner == nil {
 		return nil
 	}
