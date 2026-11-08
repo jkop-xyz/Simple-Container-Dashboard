@@ -79,6 +79,10 @@ type host struct {
 	// loggedOut makes `gh auth status` fail; repos is what `gh repo list` returns.
 	loggedOut bool
 	repos     string
+	// groups is the output of `id -nG`; firewalld/ufw make that firewall active.
+	groups    string
+	firewalld bool
+	ufw       bool
 }
 
 func newHost(tools ...string) *host {
@@ -114,6 +118,18 @@ func (h *host) Run(_ context.Context, c runner.Cmd) (runner.Result, error) {
 		for _, p := range strings.Fields(line)[4:] {
 			h.installed[p] = true
 		}
+	case strings.HasPrefix(line, "id -nG "):
+		return runner.Result{Output: []byte(h.groups + "\n")}, nil
+	case line == "systemctl is-active firewalld":
+		if h.firewalld {
+			return runner.Result{Output: []byte("active\n")}, nil
+		}
+		return runner.Result{ExitCode: 3, Output: []byte("inactive\n")}, &runner.ExitError{Cmd: c, Result: runner.Result{ExitCode: 3}}
+	case line == "sudo ufw status":
+		if h.ufw {
+			return runner.Result{Output: []byte("Status: active\n")}, nil
+		}
+		return runner.Result{Output: []byte("Status: inactive\n")}, nil
 	case line == "gh auth status" && h.loggedOut:
 		return runner.Result{ExitCode: 1}, &runner.ExitError{Cmd: c, Result: runner.Result{ExitCode: 1, Output: []byte("You are not logged into any GitHub hosts.")}}
 	case strings.HasPrefix(line, "gh auth login"):
@@ -135,12 +151,15 @@ func (h *host) Run(_ context.Context, c runner.Cmd) (runner.Result, error) {
 	return runner.Result{}, nil
 }
 
-// installCmds drops the gh/git steps, leaving the install commands.
+// installCmds keeps only the package/tool install steps (and the compose check).
 func installCmds(cmds []string) []string {
 	var out []string
 	for _, c := range cmds {
-		if !strings.HasPrefix(c, "gh ") && !strings.HasPrefix(c, "git ") {
-			out = append(out, c)
+		for _, p := range []string{"curl ", "sudo sh ", "sudo dnf install", "sudo apt-get install", "docker compose version"} {
+			if strings.HasPrefix(c, p) {
+				out = append(out, c)
+				break
+			}
 		}
 	}
 	return out
@@ -168,6 +187,7 @@ func runSetup(t *testing.T, osRelease string, h *host, a *answers) run {
 		DataDir:    filepath.Join(dir, "data", "scd"),
 		Binary:     "/home/op/.local/bin/scd",
 		TempDir:    filepath.Join(dir, "tmp"),
+		User:       "op",
 	}
 	err := setup.Run(context.Background(), env)
 	return run{err: err, out: out.String(), cmds: h.cmds, configPath: env.ConfigPath,
@@ -358,7 +378,7 @@ func TestConfigAndUnitAreWrittenAndNextStepsPrinted(t *testing.T) {
 		}
 	}
 	for _, c := range r.cmds {
-		if strings.HasPrefix(c, "systemctl") {
+		if strings.Contains(c, "scd.service") {
 			t.Errorf("setup started the service itself: %q", c)
 		}
 	}

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"os/user"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -128,5 +129,13 @@ func runSetup() error {
 		DataDir:    dataDir,
 		Binary:     bin,
 		TempDir:    tmp,
+		User:       username(),
 	})
+}
+
+func username() string {
+	if u, err := user.Current(); err == nil {
+		return u.Username
+	}
+	return os.Getenv("USER")
 }
