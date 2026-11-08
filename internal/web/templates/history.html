@@ -7,7 +7,7 @@
 {{template "head"}}
 </head>
 <body>
-{{template "shell-start" (dict "Hostname" .Hostname "Page" "history" "Crumb" "Apply history")}}
+{{template "shell-start" (dict "Hostname" .Hostname "Page" "history" "Parent" "Deployment" "ParentHref" "/deployment" "Crumb" "Apply history")}}
   <h1 class="visually-hidden">Apply history (last 20)</h1>
   <ol class="timeline">
   {{range .History}}

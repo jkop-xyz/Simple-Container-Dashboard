@@ -267,8 +267,11 @@ if (logView) {
 const navToggle = document.querySelector(".nav-toggle");
 const scrim = document.querySelector(".scrim");
 const appbar = document.querySelector(".appbar");
+const header = document.querySelector(".header");
 const syncAppbarHeight = () => {
-  if (appbar) document.documentElement.style.setProperty("--appbar", `${appbar.offsetHeight}px`);
+  const root = document.documentElement.style;
+  if (appbar) root.setProperty("--appbar", `${appbar.offsetHeight}px`);
+  if (header) root.setProperty("--header", `${getComputedStyle(header).position === "sticky" ? header.offsetHeight : appbar?.offsetHeight || 0}px`);
 };
 syncAppbarHeight();
 window.addEventListener("resize", syncAppbarHeight);

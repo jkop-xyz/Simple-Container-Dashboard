@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -52,8 +53,17 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 		}
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	},
-	"ports": view.Ports,
-	"sicon": sicon,
+	"ports":       view.Ports,
+	"sicon":       sicon,
+	"filterTitle": func(f string) string { return view.FilterTitles[f] },
+	// shown counts the containers a (filtered) dashboard shows.
+	"shown": func(d view.Dashboard) int {
+		n := len(d.Other)
+		for _, g := range d.Groups {
+			n += len(g.Containers)
+		}
+		return n
+	},
 	// memBar sizes a container's memory bar relative to the busiest container.
 	"memBar": func(mem, peak uint64) float64 {
 		if peak == 0 {
@@ -202,6 +212,8 @@ func New(deps Deps) *Server {
 	static, _ := fs.Sub(staticFS, "static")
 	s.mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
 	s.mux.HandleFunc("GET /{$}", s.index)
+	s.mux.HandleFunc("GET /containers", s.index)
+	s.mux.HandleFunc("GET /deployment", s.index)
 	s.mux.HandleFunc("POST /stacks/{name}/selection", s.setSelection)
 	s.mux.HandleFunc("POST /sync", s.sync)
 	s.mux.HandleFunc("POST /apply", s.apply)
@@ -250,14 +262,25 @@ type indexData struct {
 	Counts map[string]int
 	// Q is the search text ("" = no search).
 	Q string
+	// View is the page: "overview", "containers" or "deployment".
+	View string
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
+	// Filters and searches live on the Containers page; keep old links working.
+	if r.URL.Path == "/" && (r.URL.Query().Get("filter") != "" || r.URL.Query().Get("q") != "") {
+		http.Redirect(w, r, "/containers?"+r.URL.RawQuery, http.StatusSeeOther)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
+	page := strings.TrimPrefix(r.URL.Path, "/")
+	if page == "" {
+		page = "overview"
+	}
 	data := indexData{Hostname: s.deps.Hostname, RepoName: s.deps.RepoName, BrowserHost: browserHost(r),
-		Missing: s.missing(), NewRelease: s.newRelease(), Demo: s.deps.Demo}
+		Missing: s.missing(), NewRelease: s.newRelease(), Demo: s.deps.Demo, View: page}
 	status := http.StatusOK
 
 	cs, err := s.containers(ctx)
@@ -298,11 +321,11 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		"selected":  data.Overview.Selected,
 	}
 	data.Dashboard = full
-	if f := r.URL.Query().Get("filter"); view.Filters[f] != "" {
+	if f := r.URL.Query().Get("filter"); data.View == "containers" && view.Filters[f] != "" {
 		data.Filter, data.FilterLabel = f, view.Filters[f]
 		data.Dashboard = full.Filter(f)
 	}
-	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
+	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" && data.View == "containers" {
 		data.Q = q
 		data.Dashboard = data.Dashboard.Search(q)
 	}
@@ -384,7 +407,7 @@ func (s *Server) sync(w http.ResponseWriter, r *http.Request) {
 	}
 	// The outcome is kept by the engine and rendered on the dashboard.
 	_, _ = s.deps.Engine.Sync(r.Context())
-	http.Redirect(w, r, "/#sync", http.StatusSeeOther)
+	http.Redirect(w, r, backTo(r, "#sync"), http.StatusSeeOther)
 }
 
 // apply starts (or joins) an Apply of the current Sync Plan. Rejections are kept by the
@@ -397,7 +420,7 @@ func (s *Server) apply(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.deps.Engine.Apply(); err != nil {
 		slog.Warn("Apply rejected", "err", err)
 	}
-	http.Redirect(w, r, "/#apply", http.StatusSeeOther)
+	http.Redirect(w, r, backTo(r, "#apply"), http.StatusSeeOther)
 }
 
 // applyStream streams the running (or latest) Apply's output as Server-Sent Events,
@@ -876,4 +899,13 @@ func navCount(v any, name string) int {
 		return d.Counts[name]
 	}
 	return -1
+}
+
+// backTo is where Sync and Apply return to: the Deployment page if they were pressed
+// there, otherwise the Overview.
+func backTo(r *http.Request, anchor string) string {
+	if ref, err := url.Parse(r.Referer()); err == nil && ref.Path == "/deployment" {
+		return "/deployment" + anchor
+	}
+	return "/" + anchor
 }

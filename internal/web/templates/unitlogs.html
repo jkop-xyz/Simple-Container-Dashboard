@@ -7,7 +7,7 @@
 {{template "head"}}
 </head>
 <body class="logs-page">
-{{template "shell-start" (dict "Hostname" .Hostname "Page" "logs" "Parent" "Unit logs" "Crumb" .Unit)}}
+{{template "shell-start" (dict "Hostname" .Hostname "Page" "logs" "Parent" "Containers" "ParentHref" "/containers" "Crumb" (printf "%s log" .Unit))}}
   <div class="card log-card">
     <div class="card-head">
       <h1 class="unit-name mono">{{.Unit}}</h1>
@@ -20,7 +20,7 @@
     <div class="log-toolbar">
       <label class="field field-grow"><span class="visually-hidden">Filter lines</span>
         <input type="search" class="log-filter" placeholder="Filter lines…" autocomplete="off" spellcheck="false"></label>
-      <span class="log-count muted" aria-live="polite"></span>
+      <span class="log-count muted"></span>
       <label class="field"><span>Lines</span>
         <select class="log-lines">{{range .Tails}}<option value="{{.}}"{{if eq . $.Tail}} selected{{end}}>{{.}}</option>{{end}}</select></label>
       

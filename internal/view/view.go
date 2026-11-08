@@ -271,6 +271,14 @@ var Filters = map[string]string{
 	"unmanaged": "unmanaged containers",
 }
 
+// FilterTitles are the filters' short names, as the navigation shows them.
+var FilterTitles = map[string]string{
+	"attention": "Needs attention",
+	"stopped":   "Not running",
+	"selected":  "Selected Stacks",
+	"unmanaged": "Unmanaged",
+}
+
 // Filter narrows the dashboard to one of Filters. Unknown names leave it unchanged.
 func (d Dashboard) Filter(name string) Dashboard {
 	keepRows := func(cs []Container, ok func(Container) bool) []Container {

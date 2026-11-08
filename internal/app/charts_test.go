@@ -109,7 +109,7 @@ func TestSearchNarrowsTheDashboardServerSide(t *testing.T) {
 
 func TestNavigationSectionsAreLinks(t *testing.T) {
 	body := mustGet(startDashboard(t))
-	assertContains(t, body, `class="nav-item nav-top" href="/#containers">Containers`, `class="nav-item nav-top" href="/#stacks">Deployment`)
+	assertContains(t, body, `class="nav-item nav-top" href="/containers">Containers`, `class="nav-item nav-top" href="/deployment">Deployment`)
 }
 
 func TestRobotoIsServedFromTheBinary(t *testing.T) {

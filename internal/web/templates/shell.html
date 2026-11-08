@@ -23,12 +23,13 @@
 {{/* shell-start: .Hostname, .Page, .Crumb, .Parent/.ParentHref (optional), .Index (dashboard data or nil), .Q (search text) */}}
 {{define "shell-start"}}
 <a class="skip-link" href="#main">Skip to content</a>
+<div class="header">
 <header class="appbar">
   <button type="button" class="icon-btn nav-toggle" aria-label="Navigation" aria-controls="sidenav" aria-expanded="false">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z" fill="currentColor"/></svg>
   </button>
   {{template "brand"}}
-  <form class="search" action="/" method="get" role="search">
+  <form class="search" action="/containers" method="get" role="search">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 14 15.5l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z" fill="currentColor"/></svg>
     <label class="visually-hidden" for="global-search">Search containers and Stacks</label>
     <input id="global-search" type="search" name="q" value="{{.Q}}" class="global-search" placeholder="Search containers and Stacks" autocomplete="off" spellcheck="false">
@@ -59,6 +60,7 @@
     {{with .NewRelease}}<li><a class="new-release" href="https://github.com/jkop-xyz/Simple-Container-Dashboard/releases/tag/{{.}}" target="_blank" rel="noopener">{{template "i-info"}}new version {{.}} available</a></li>{{end}}
   </ul>{{end}}
 </div>
+</div>
 
 <div class="layout">
 <nav id="sidenav" class="sidenav" aria-label="Main">
@@ -68,15 +70,16 @@
   </div>
   <ul class="nav-list">
     <li><a class="nav-item nav-top{{if eq .Page "overview"}} is-active{{end}}" href="/"{{if eq .Page "overview"}} aria-current="page"{{end}}>Overview</a></li>
-    <li><a class="nav-item nav-top" href="/#containers">Containers{{with .Index}}<span class="nav-count" data-count="total">{{.Overview.Total}}</span>{{end}}</a>
+    {{$here := and (eq .Page "containers") (not .Filter)}}
+    <li><a class="nav-item nav-top{{if $here}} is-active{{end}}" href="/containers"{{if $here}} aria-current="page"{{end}}>Containers{{with .Index}}<span class="nav-count" data-count="total">{{.Overview.Total}}</span>{{end}}</a>
       <ul class="nav-list nav-sub">
-        {{template "nav-filter" (dict "Name" "attention" "Label" "Needs attention" "Page" .Page "Count" (navCount .Index "attention") "Bad" true)}}
-        {{template "nav-filter" (dict "Name" "stopped" "Label" "Not running" "Page" .Page "Count" (navCount .Index "stopped") "Bad" false)}}
-        {{template "nav-filter" (dict "Name" "unmanaged" "Label" "Unmanaged" "Page" .Page "Count" (navCount .Index "unmanaged") "Bad" false)}}
+        {{template "nav-filter" (dict "Name" "attention" "Label" "Needs attention" "Page" .Page "Filter" .Filter "Count" (navCount .Index "attention") "Bad" true)}}
+        {{template "nav-filter" (dict "Name" "stopped" "Label" "Not running" "Page" .Page "Filter" .Filter "Count" (navCount .Index "stopped") "Bad" false)}}
+        {{template "nav-filter" (dict "Name" "unmanaged" "Label" "Unmanaged" "Page" .Page "Filter" .Filter "Count" (navCount .Index "unmanaged") "Bad" false)}}
       </ul></li>
-    <li><a class="nav-item nav-top" href="/#stacks">Deployment</a>
+    {{$dep := eq .Page "deployment"}}
+    <li><a class="nav-item nav-top{{if $dep}} is-active{{end}}" href="/deployment"{{if $dep}} aria-current="page"{{end}}>Deployment</a>
       <ul class="nav-list nav-sub">
-        {{template "nav-filter" (dict "Name" "selected" "Label" "Selected Stacks" "Page" .Page "Count" (navCount .Index "selected") "Bad" false)}}
         <li><a class="nav-item{{if eq .Page "history"}} is-active{{end}}" href="/history"{{if eq .Page "history"}} aria-current="page"{{end}}>Apply history</a></li>
       </ul></li>
   </ul>
@@ -84,7 +87,7 @@
 <main id="main" class="page" tabindex="-1">
 {{end}}
 
-{{define "nav-filter"}}<li><a class="nav-item{{if eq .Page .Name}} is-active{{end}}" href="/?filter={{.Name}}"{{if eq .Page .Name}} aria-current="page"{{end}}>
+{{define "nav-filter"}}{{$on := and (eq .Page "containers") (eq .Filter .Name)}}<li><a class="nav-item{{if $on}} is-active{{end}}" href="/containers?filter={{.Name}}"{{if $on}} aria-current="page"{{end}}>
   <span>{{.Label}}</span>{{if ge .Count 0}}<span class="nav-count{{if and .Bad (gt .Count 0)}} nav-count-bad{{end}}" data-count="{{.Name}}">{{.Count}}</span>{{end}}</a></li>{{end}}
 
 {{define "shell-end"}}
